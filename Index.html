@@ -1,0 +1,1679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lumen — photo editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#19191b;
+    --stage:#111113;
+    --panel:#212124;
+    --panel-2:#27272a;
+    --border:#38383c;
+    --text:#e9e7e2;
+    --text-dim:#98979c;
+    --accent:#d98e3f;
+    --accent-soft:rgba(217,142,63,0.16);
+    --danger:#c15b4a;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;
+    overflow:hidden;
+  }
+  .app{ display:flex; flex-direction:column; height:100vh; }
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 16px;
+    border-bottom:1px solid var(--border);
+    background:var(--panel);
+    flex-shrink:0;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .brand{ font-weight:600; font-size:15px; letter-spacing:0.2px; color:var(--text); }
+  .brand span{ color:var(--accent); }
+  .toolbar{ display:flex; gap:8px; flex-wrap:wrap; }
+  .btn{
+    appearance:none; border:1px solid var(--border); background:var(--panel-2);
+    color:var(--text); font-family:inherit; font-size:13px; font-weight:500;
+    padding:7px 13px; border-radius:6px; cursor:pointer;
+    transition:background .12s ease, border-color .12s ease, opacity .12s ease;
+  }
+  .btn:hover:not(:disabled){ background:#313134; border-color:#48484c; }
+  .btn:disabled{ opacity:0.35; cursor:default; }
+  .btn-accent{ background:var(--accent); border-color:var(--accent); color:#1a1408; font-weight:600; }
+  .btn-accent:hover:not(:disabled){ background:#e39a4d; }
+  .btn-ghost{ background:transparent; }
+  label.btn{ display:inline-block; }
+  .file-input{
+    position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+    overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+  }
+
+  /* ---------- Workspace ---------- */
+  .workspace{ flex:1; display:flex; min-height:0; }
+  .stage{
+    flex:1; position:relative; background:var(--stage);
+    display:flex; align-items:center; justify-content:center;
+    padding:24px; min-width:0;
+    background-image:
+      linear-gradient(45deg, #17171a 25%, transparent 25%),
+      linear-gradient(-45deg, #17171a 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #17171a 75%),
+      linear-gradient(-45deg, transparent 75%, #17171a 75%);
+    background-size:22px 22px;
+    background-position:0 0, 0 11px, 11px -11px, -11px 0px;
+  }
+  .empty-state{ text-align:center; color:var(--text-dim); }
+  .empty-state p{ margin:0 0 14px; font-size:14px; }
+  .canvas-wrap{ position:relative; max-width:100%; max-height:100%; line-height:0; }
+  #editorCanvas{
+    max-width:100%; max-height:calc(100vh - 140px);
+    display:block; border-radius:2px;
+    box-shadow:0 8px 30px rgba(0,0,0,.5);
+  }
+  .mask-vis-canvas{
+    position:absolute; inset:0; width:100%; height:100%;
+    pointer-events:none; display:none; border-radius:2px;
+  }
+
+  /* ---------- Crop overlay ---------- */
+  .crop-overlay{ position:absolute; inset:0; overflow:hidden; }
+  .crop-box{
+    position:absolute; border:1px solid rgba(255,255,255,0.85);
+    box-shadow:0 0 0 9999px rgba(0,0,0,0.6);
+    cursor:move; touch-action:none;
+  }
+  .grid-line{ position:absolute; background:rgba(255,255,255,0.35); pointer-events:none; }
+  .grid-line.v{ width:1px; top:0; bottom:0; }
+  .grid-line.h{ height:1px; left:0; right:0; }
+  .handle{
+    position:absolute; width:14px; height:14px; background:#fff; border-radius:3px;
+    box-shadow:0 0 0 1px rgba(0,0,0,.4);
+    touch-action:none;
+  }
+  .handle.nw{ top:-7px; left:-7px; cursor:nwse-resize; }
+  .handle.ne{ top:-7px; right:-7px; cursor:nesw-resize; }
+  .handle.sw{ bottom:-7px; left:-7px; cursor:nesw-resize; }
+  .handle.se{ bottom:-7px; right:-7px; cursor:nwse-resize; }
+
+  .crop-buttons{ display:flex; gap:8px; margin-top:18px; }
+  .crop-buttons .btn{ flex:1; text-align:center; }
+  .preset-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .preset-btn{
+    border:1px solid var(--border); background:var(--panel-2); color:var(--text-dim);
+    font-size:12px; font-family:inherit; padding:8px 4px; border-radius:6px; cursor:pointer;
+  }
+  .preset-btn:hover{ border-color:#48484c; }
+  .preset-btn.active{ border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    width:280px; flex-shrink:0; background:var(--panel);
+    border-left:1px solid var(--border);
+    overflow-y:auto; padding:8px 0 24px;
+  }
+  .panel-group{ padding:16px 18px; border-bottom:1px solid var(--border); }
+  .panel-group h3{
+    margin:0 0 14px; font-size:11px; font-weight:600; letter-spacing:0.06em;
+    color:var(--text-dim); text-transform:uppercase;
+  }
+  .slider-row{ margin-bottom:16px; }
+  .slider-row:last-child{ margin-bottom:0; }
+  .slider-label{
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:6px; font-size:13px;
+  }
+  .slider-label .name{ color:var(--text); }
+  .slider-label .val-group{ display:flex; align-items:center; gap:6px; }
+  .slider-value{
+    font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-dim);
+    min-width:32px; text-align:right;
+  }
+  .reset-dot{
+    width:16px; height:16px; border:none; background:transparent; color:var(--text-dim);
+    cursor:pointer; font-size:13px; line-height:1; padding:0; opacity:0.6;
+  }
+  .reset-dot:hover{ opacity:1; color:var(--accent); }
+  input[type=range]{
+    -webkit-appearance:none; width:100%; height:4px; border-radius:2px;
+    background:var(--border); outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+    background:var(--accent); border:2px solid #17171a; cursor:pointer; margin-top:0;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background:var(--accent);
+    border:2px solid #17171a; cursor:pointer;
+  }
+  .no-image-msg{ padding:24px 18px; color:var(--text-dim); font-size:13px; line-height:1.5; }
+
+  /* ---------- Histogram ---------- */
+  .histogram-wrap{
+    width:100%; height:72px; border-radius:6px; overflow:hidden;
+    background:var(--stage); border:1px solid var(--border);
+  }
+  #histogramCanvas{ width:100%; height:100%; display:block; }
+
+  .btn.active{ border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+
+  /* ---------- Masks: sidebar ---------- */
+  .mask-add-row{ display:flex; gap:6px; margin-bottom:12px; }
+  .mask-add-row .btn{ flex:1; padding:8px 4px; font-size:12px; }
+  .mask-list{ display:flex; flex-direction:column; gap:6px; }
+  .mask-item{
+    display:flex; align-items:center; gap:8px; padding:8px 10px;
+    border:1px solid var(--border); border-radius:6px; background:var(--panel-2);
+    cursor:pointer; font-size:13px;
+  }
+  .mask-item.active{ border-color:var(--accent); background:var(--accent-soft); }
+  .mask-item .mtype{ color:var(--text-dim); font-size:10px; text-transform:uppercase; letter-spacing:.05em; width:38px; flex-shrink:0; }
+  .mask-item .mname{ flex:1; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mask-item input[type=checkbox]{ accent-color:var(--accent); flex-shrink:0; }
+  .mask-item .mdel{ background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:15px; line-height:1; padding:2px 4px; flex-shrink:0; }
+  .mask-item .mdel:hover{ color:var(--danger); }
+  .mask-empty-hint{ color:var(--text-dim); font-size:12px; line-height:1.5; padding:2px; }
+  .mask-toggle-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; font-size:13px; }
+  .mask-toggle-row label{ display:flex; align-items:center; gap:6px; color:var(--text); cursor:pointer; }
+  .mask-toggle-row input[type=checkbox]{ accent-color:var(--accent); }
+  .mask-btn-row{ display:flex; gap:8px; margin-bottom:14px; }
+  .mask-btn-row .btn{ flex:1; }
+  #maskEraseToggle.active{ border-color:var(--danger); color:var(--danger); background:rgba(193,91,74,0.14); }
+
+  /* ---------- Masks: on-canvas overlay ---------- */
+  .mask-overlay{ position:absolute; inset:0; pointer-events:none; }
+  .mask-radial{
+    position:absolute; border:1.5px dashed rgba(255,255,255,0.9); border-radius:50%;
+    cursor:move; touch-action:none; pointer-events:auto;
+  }
+  .mask-radial .mr-handle{
+    position:absolute; width:12px; height:12px; margin:-6px; background:#fff; border-radius:50%;
+    box-shadow:0 0 0 1px rgba(0,0,0,.5); touch-action:none; pointer-events:auto;
+  }
+  .mask-radial .mr-handle.e{ top:50%; right:0; cursor:ew-resize; }
+  .mask-radial .mr-handle.s{ bottom:0; left:50%; cursor:ns-resize; }
+  .mask-linear-svg{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .mask-linear-handle{
+    width:16px; height:16px; border-radius:50%; background:#fff; border:2px solid var(--accent);
+    cursor:grab; touch-action:none; pointer-events:auto;
+    transform:translate(-50%,-50%);
+  }
+  .mask-brush-cursor{
+    position:absolute; border:1.5px solid rgba(255,255,255,0.9); border-radius:50%;
+    pointer-events:none; transform:translate(-50%,-50%); display:none;
+  }
+
+  @media (max-width:720px){
+    .workspace{ flex-direction:column; }
+    .sidebar{ width:100%; border-left:none; border-top:1px solid var(--border); max-height:44vh; }
+    #editorCanvas{ max-height:40vh; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">Lumen<span>.</span></div>
+    <div class="toolbar">
+      <label class="btn" for="fileInput">Open image</label>
+      <input type="file" class="file-input" id="fileInput" accept="image/*">
+      <button class="btn" id="cropBtn" disabled>Crop</button>
+      <button class="btn" id="maskBtn" disabled>Masks</button>
+      <button class="btn" id="compareBtn" disabled title="Press and hold to view original">Compare</button>
+      <button class="btn" id="resetBtn" disabled>Reset all</button>
+      <button class="btn btn-accent" id="downloadBtn" disabled>Download</button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <section class="stage" id="stage">
+      <div class="empty-state" id="emptyState">
+        <p>Drop a photo here, or</p>
+        <label class="btn btn-accent" for="fileInput">Choose a file</label>
+      </div>
+
+      <div class="canvas-wrap" id="canvasWrap" style="display:none;">
+        <canvas id="editorCanvas"></canvas>
+        <canvas class="mask-vis-canvas" id="maskVisCanvas"></canvas>
+
+        <div class="crop-overlay" id="cropOverlay" style="display:none;">
+          <div class="crop-box" id="cropBox">
+            <div class="grid-line v" style="left:33.333%"></div>
+            <div class="grid-line v" style="left:66.666%"></div>
+            <div class="grid-line h" style="top:33.333%"></div>
+            <div class="grid-line h" style="top:66.666%"></div>
+            <div class="handle nw" data-corner="nw"></div>
+            <div class="handle ne" data-corner="ne"></div>
+            <div class="handle sw" data-corner="sw"></div>
+            <div class="handle se" data-corner="se"></div>
+          </div>
+        </div>
+
+        <div class="mask-overlay" id="maskOverlay" style="display:none;">
+          <div class="mask-radial" id="maskRadialBox" style="display:none;">
+            <div class="mr-handle e" data-mhandle="e"></div>
+            <div class="mr-handle s" data-mhandle="s"></div>
+          </div>
+          <svg class="mask-linear-svg" id="maskLinearSvg" style="display:none;">
+            <line id="maskLinearLine" x1="0%" y1="0%" x2="0%" y2="0%" stroke="rgba(255,255,255,0.9)" stroke-width="1.5" stroke-dasharray="6 5"></line>
+            <foreignObject id="maskLinearFO1" width="16" height="16" style="overflow:visible;">
+              <div class="mask-linear-handle" data-mhandle="p1" xmlns="http://www.w3.org/1999/xhtml"></div>
+            </foreignObject>
+            <foreignObject id="maskLinearFO2" width="16" height="16" style="overflow:visible;">
+              <div class="mask-linear-handle" data-mhandle="p2" xmlns="http://www.w3.org/1999/xhtml"></div>
+            </foreignObject>
+          </svg>
+          <div class="mask-brush-cursor" id="maskBrushCursor"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="sidebar" id="sidebar">
+      <div id="noImageMsg" class="no-image-msg">Open a photo to start editing. Adjustments and crop will appear here.</div>
+
+      <div id="panels" style="display:none;">
+        <div class="panel-group">
+          <h3>Histogram</h3>
+          <div class="histogram-wrap">
+            <canvas id="histogramCanvas" width="244" height="72"></canvas>
+          </div>
+        </div>
+
+        <div class="panel-group">
+          <h3>Presets</h3>
+          <div class="preset-grid" id="filterPresetGrid" style="grid-template-columns:repeat(2,1fr);">
+            <button class="preset-btn" data-preset="original">Original</button>
+            <button class="preset-btn" data-preset="vivid">Vivid</button>
+            <button class="preset-btn" data-preset="warmFilm">Warm film</button>
+            <button class="preset-btn" data-preset="coolTone">Cool tone</button>
+            <button class="preset-btn" data-preset="bwClassic">B&amp;W classic</button>
+            <button class="preset-btn" data-preset="faded">Faded</button>
+          </div>
+        </div>
+
+        <div class="panel-group">
+          <h3>Light</h3>
+          <div class="slider-row" data-key="exposure">
+            <div class="slider-label">
+              <span class="name">Exposure</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="exposure">
+          </div>
+          <div class="slider-row" data-key="contrast">
+            <div class="slider-label">
+              <span class="name">Contrast</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="contrast">
+          </div>
+          <div class="slider-row" data-key="highlights">
+            <div class="slider-label">
+              <span class="name">Highlights</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="highlights">
+          </div>
+          <div class="slider-row" data-key="shadows">
+            <div class="slider-label">
+              <span class="name">Shadows</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="shadows">
+          </div>
+          <div class="slider-row" data-key="whites">
+            <div class="slider-label">
+              <span class="name">Whites</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="whites">
+          </div>
+          <div class="slider-row" data-key="blacks">
+            <div class="slider-label">
+              <span class="name">Blacks</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="blacks">
+          </div>
+        </div>
+
+        <div class="panel-group">
+          <h3>Color</h3>
+          <div class="slider-row" data-key="vibrance">
+            <div class="slider-label">
+              <span class="name">Vibrance</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="vibrance">
+          </div>
+          <div class="slider-row" data-key="saturation">
+            <div class="slider-label">
+              <span class="name">Saturation</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="saturation">
+          </div>
+          <div class="slider-row" data-key="temperature">
+            <div class="slider-label">
+              <span class="name">Temperature</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="temperature">
+          </div>
+        </div>
+
+        <div class="panel-group">
+          <h3>Detail</h3>
+          <div class="slider-row" data-key="clarity">
+            <div class="slider-label">
+              <span class="name">Clarity</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="clarity">
+          </div>
+          <div class="slider-row" data-key="sharpen">
+            <div class="slider-label">
+              <span class="name">Sharpen</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="0" max="100" value="0" class="slider" id="sharpen">
+          </div>
+          <div class="slider-row" data-key="noiseReduction">
+            <div class="slider-label">
+              <span class="name">Noise reduction</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="0" max="100" value="0" class="slider" id="noiseReduction">
+          </div>
+        </div>
+
+        <div class="panel-group">
+          <h3>Effects</h3>
+          <div class="slider-row" data-key="vignette">
+            <div class="slider-label">
+              <span class="name">Vignette</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" class="slider" id="vignette">
+          </div>
+          <div class="slider-row" data-key="grain">
+            <div class="slider-label">
+              <span class="name">Grain</span>
+              <div class="val-group"><span class="slider-value">0</span><button class="reset-dot" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="0" max="100" value="0" class="slider" id="grain">
+          </div>
+        </div>
+      </div>
+
+      <div id="cropPanel" style="display:none;">
+        <div class="panel-group">
+          <h3>Straighten</h3>
+          <div class="slider-row" data-key="straighten">
+            <div class="slider-label">
+              <span class="name">Angle</span>
+              <div class="val-group"><span class="slider-value" id="straightenValue">0°</span><button class="reset-dot" id="straightenReset" title="Reset">↺</button></div>
+            </div>
+            <input type="range" min="-45" max="45" value="0" class="slider" id="straighten">
+          </div>
+        </div>
+
+        <div class="panel-group">
+          <h3>Aspect ratio</h3>
+          <div class="preset-grid" id="presetGrid">
+            <button class="preset-btn active" data-ratio="free">Free</button>
+            <button class="preset-btn" data-ratio="1:1">1:1</button>
+            <button class="preset-btn" data-ratio="4:3">4:3</button>
+            <button class="preset-btn" data-ratio="3:2">3:2</button>
+            <button class="preset-btn" data-ratio="16:9">16:9</button>
+            <button class="preset-btn" data-ratio="9:16">9:16</button>
+          </div>
+          <div class="crop-buttons">
+            <button class="btn" id="cropCancel">Cancel</button>
+            <button class="btn btn-accent" id="cropApply">Apply crop</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="maskPanel" style="display:none;">
+        <div class="panel-group">
+          <h3>Masks</h3>
+          <div class="mask-add-row">
+            <button class="btn" id="addRadialMask">◎ Radial</button>
+            <button class="btn" id="addLinearMask">▤ Linear</button>
+            <button class="btn" id="addBrushMask">✎ Brush</button>
+          </div>
+          <div class="mask-list" id="maskList"></div>
+          <div class="mask-empty-hint" id="maskEmptyHint">No masks yet. Add a radial, linear, or brush mask to make a local adjustment — everything outside it is left alone.</div>
+        </div>
+
+        <div class="panel-group" id="maskEditGroup" style="display:none;">
+          <h3 id="maskEditTitle">Mask</h3>
+          <div class="mask-toggle-row">
+            <label><input type="checkbox" id="maskInvert"> Invert</label>
+            <button class="btn btn-ghost" id="maskDeleteBtn">Delete mask</button>
+          </div>
+
+          <div class="slider-row" id="maskFeatherRow" style="display:none;">
+            <div class="slider-label">
+              <span class="name">Feather</span>
+              <div class="val-group"><span class="slider-value" id="maskFeatherValue">50</span></div>
+            </div>
+            <input type="range" min="0" max="100" value="50" class="slider" id="maskFeather">
+          </div>
+
+          <div class="mask-btn-row" id="maskBrushToolsRow" style="display:none;">
+            <button class="btn" id="maskEraseToggle">Erase</button>
+          </div>
+          <div class="slider-row" id="maskBrushSizeRow" style="display:none;">
+            <div class="slider-label">
+              <span class="name">Brush size</span>
+              <div class="val-group"><span class="slider-value" id="maskBrushSizeValue">12</span></div>
+            </div>
+            <input type="range" min="2" max="50" value="12" class="slider" id="maskBrushSize">
+          </div>
+          <div class="slider-row" id="maskBrushHardnessRow" style="display:none;">
+            <div class="slider-label">
+              <span class="name">Hardness</span>
+              <div class="val-group"><span class="slider-value" id="maskBrushHardnessValue">70</span></div>
+            </div>
+            <input type="range" min="0" max="100" value="70" class="slider" id="maskBrushHardness">
+          </div>
+
+          <div id="maskAdjustSliders"></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function(){
+  const fileInput = document.getElementById('fileInput');
+  const cropBtn = document.getElementById('cropBtn');
+  const compareBtn = document.getElementById('compareBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+
+  const stage = document.getElementById('stage');
+  const emptyState = document.getElementById('emptyState');
+  const canvasWrap = document.getElementById('canvasWrap');
+  const canvas = document.getElementById('editorCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const cropOverlay = document.getElementById('cropOverlay');
+  const cropBox = document.getElementById('cropBox');
+  const cropPanel = document.getElementById('cropPanel');
+  const cropApplyBtn = document.getElementById('cropApply');
+  const cropCancelBtn = document.getElementById('cropCancel');
+  const straightenInput = document.getElementById('straighten');
+  const straightenValueEl = document.getElementById('straightenValue');
+  const straightenResetBtn = document.getElementById('straightenReset');
+  const presetGrid = document.getElementById('presetGrid');
+
+  const noImageMsg = document.getElementById('noImageMsg');
+  const panels = document.getElementById('panels');
+
+  const histCanvas = document.getElementById('histogramCanvas');
+  const histCtx = histCanvas.getContext('2d');
+
+  const maskBtn = document.getElementById('maskBtn');
+  const maskPanel = document.getElementById('maskPanel');
+  const maskOverlay = document.getElementById('maskOverlay');
+  const maskList = document.getElementById('maskList');
+  const maskEmptyHint = document.getElementById('maskEmptyHint');
+  const maskEditGroup = document.getElementById('maskEditGroup');
+  const maskEditTitle = document.getElementById('maskEditTitle');
+  const maskInvertInput = document.getElementById('maskInvert');
+  const maskDeleteBtn = document.getElementById('maskDeleteBtn');
+  const maskFeatherRow = document.getElementById('maskFeatherRow');
+  const maskFeatherInput = document.getElementById('maskFeather');
+  const maskFeatherValueEl = document.getElementById('maskFeatherValue');
+  const maskBrushToolsRow = document.getElementById('maskBrushToolsRow');
+  const maskEraseToggle = document.getElementById('maskEraseToggle');
+  const maskBrushSizeRow = document.getElementById('maskBrushSizeRow');
+  const maskBrushSizeInput = document.getElementById('maskBrushSize');
+  const maskBrushSizeValueEl = document.getElementById('maskBrushSizeValue');
+  const maskBrushHardnessRow = document.getElementById('maskBrushHardnessRow');
+  const maskBrushHardnessInput = document.getElementById('maskBrushHardness');
+  const maskBrushHardnessValueEl = document.getElementById('maskBrushHardnessValue');
+  const maskAdjustSliders = document.getElementById('maskAdjustSliders');
+  const maskRadialBox = document.getElementById('maskRadialBox');
+  const maskLinearSvg = document.getElementById('maskLinearSvg');
+  const maskLinearLine = document.getElementById('maskLinearLine');
+  const maskLinearFO1 = document.getElementById('maskLinearFO1');
+  const maskLinearFO2 = document.getElementById('maskLinearFO2');
+  const maskBrushCursor = document.getElementById('maskBrushCursor');
+  const maskVisCanvas = document.getElementById('maskVisCanvas');
+  const maskVisCtx = maskVisCanvas.getContext('2d');
+
+  const MASK_ADJUST_DEFS = [
+    { key:'exposure', name:'Exposure', min:-100, max:100 },
+    { key:'contrast', name:'Contrast', min:-100, max:100 },
+    { key:'highlights', name:'Highlights', min:-100, max:100 },
+    { key:'shadows', name:'Shadows', min:-100, max:100 },
+    { key:'saturation', name:'Saturation', min:-100, max:100 },
+    { key:'clarity', name:'Clarity', min:-100, max:100 }
+  ];
+
+  let masks = [];
+  let activeMaskId = null;
+  let maskMode = false;
+  let maskIdCounter = 1;
+  let maskDragState = null;
+  let brushPainting = false;
+  let brushErase = false;
+
+  const MAX_DIM = 1400;
+
+  let workingCanvas = null; // holds the current (post-crop) full-res source
+  let cropMode = false;
+  let crop = { x: 10, y: 10, w: 80, h: 80 }; // percentages relative to displayed canvas
+  let dragState = null;
+  let straighten = 0; // degrees, only meaningful while cropMode is active
+  let aspectLock = null; // null = free, otherwise {rw, rh}
+
+  const state = {
+    exposure: 0, contrast: 0, saturation: 0, vibrance: 0, temperature: 0,
+    highlights: 0, shadows: 0, whites: 0, blacks: 0,
+    clarity: 0, sharpen: 0, noiseReduction: 0,
+    vignette: 0, grain: 0
+  };
+  const sliders = Object.keys(state).map(key => {
+    const input = document.getElementById(key);
+    const row = document.querySelector(`.slider-row[data-key="${key}"]`);
+    const valueEl = row.querySelector('.slider-value');
+    const resetEl = row.querySelector('.reset-dot');
+    return { key, input, valueEl, resetEl };
+  });
+
+  let renderQueued = false;
+  function queueRender(){
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; renderPreview(); });
+  }
+
+  // Returns a canvas covering the working image rotated by `straighten` degrees,
+  // scaled up just enough that no empty corners show (a "cover" rotation).
+  function getRotatedSource(){
+    if (!cropMode || straighten === 0) return workingCanvas;
+    const W = workingCanvas.width, H = workingCanvas.height;
+    const rad = straighten * Math.PI / 180;
+    const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+    const scale = Math.max(cos + (H / W) * sin, (W / H) * sin + cos);
+
+    const out = document.createElement('canvas');
+    out.width = W; out.height = H;
+    const octx = out.getContext('2d');
+    octx.translate(W / 2, H / 2);
+    octx.rotate(rad);
+    octx.scale(scale, scale);
+    octx.drawImage(workingCanvas, -W / 2, -H / 2, W, H);
+    return out;
+  }
+
+  function clamp01(v){ return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function clampByte(v){ return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+  // Applies exposure, highlights/shadows/whites/blacks, contrast, and
+  // saturation to raw pixel data in a single pass.
+  function applyBasicAdjustments(imageData, customState){
+    const s = customState || state;
+    const exposure = s.exposure || 0, contrast = s.contrast || 0, saturation = s.saturation || 0;
+    const vibrance = s.vibrance || 0, highlights = s.highlights || 0, shadows = s.shadows || 0;
+    const whites = s.whites || 0, blacks = s.blacks || 0;
+    const brightnessMul = 1 + exposure / 100;
+    const c255 = contrast * 2.55;
+    const contrastFactor = (259 * (c255 + 255)) / (255 * (259 - c255));
+    const satMul = 1 + saturation / 100;
+    const vibAmt = vibrance / 100;
+    const hlAmt = highlights / 100 * 70;
+    const shAmt = shadows / 100 * 70;
+    const whAmt = whites / 100 * 90;
+    const blAmt = blacks / 100 * 90;
+
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4){
+      let r = d[i] * brightnessMul;
+      let g = d[i + 1] * brightnessMul;
+      let b = d[i + 2] * brightnessMul;
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+      if (hlAmt !== 0){ const w = clamp01((lum - 128) / 127); r += hlAmt * w; g += hlAmt * w; b += hlAmt * w; }
+      if (shAmt !== 0){ const w = clamp01((128 - lum) / 128); r += shAmt * w; g += shAmt * w; b += shAmt * w; }
+      if (whAmt !== 0){ const w = clamp01((lum - 200) / 55); r += whAmt * w; g += whAmt * w; b += whAmt * w; }
+      if (blAmt !== 0){ const w = clamp01((55 - lum) / 55); r += blAmt * w; g += blAmt * w; b += blAmt * w; }
+
+      r = contrastFactor * (r - 128) + 128;
+      g = contrastFactor * (g - 128) + 128;
+      b = contrastFactor * (b - 128) + 128;
+
+      const lum2 = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = lum2 + satMul * (r - lum2);
+      g = lum2 + satMul * (g - lum2);
+      b = lum2 + satMul * (b - lum2);
+
+      // Vibrance: unlike saturation, the boost scales down as a pixel's
+      // own saturation rises (already-vivid colors are left alone), and
+      // is softened further on skin-like hues so faces don't go orange.
+      if (vibAmt !== 0){
+        const maxC = Math.max(r, g, b), minC = Math.min(r, g, b);
+        const curSat = maxC <= 0 ? 0 : (maxC - minC) / maxC;
+        const isSkinish = r > g && g >= b && (r - b) > 10 && (r - b) < 130;
+        const protect = isSkinish ? 0.5 : 1;
+        const localBoost = vibAmt * (1 - curSat) * protect;
+        r = lum2 + (1 + localBoost) * (r - lum2);
+        g = lum2 + (1 + localBoost) * (g - lum2);
+        b = lum2 + (1 + localBoost) * (b - lum2);
+      }
+
+      d[i] = clampByte(r); d[i + 1] = clampByte(g); d[i + 2] = clampByte(b);
+    }
+  }
+
+  // ---- Separable box blur (used by clarity / sharpen / noise reduction) ----
+  function clampIdx(i, size){ return i < 0 ? 0 : (i >= size ? size - 1 : i); }
+
+  function boxBlurPass(src, dst, width, height, radius, horizontal){
+    const windowSize = radius * 2 + 1;
+    if (horizontal){
+      for (let y = 0; y < height; y++){
+        const rowBase = y * width * 4;
+        let rSum = 0, gSum = 0, bSum = 0;
+        for (let dx = -radius; dx <= radius; dx++){
+          const idx = rowBase + clampIdx(dx, width) * 4;
+          rSum += src[idx]; gSum += src[idx + 1]; bSum += src[idx + 2];
+        }
+        for (let x = 0; x < width; x++){
+          const idx = rowBase + x * 4;
+          dst[idx] = rSum / windowSize; dst[idx + 1] = gSum / windowSize; dst[idx + 2] = bSum / windowSize; dst[idx + 3] = src[idx + 3];
+          const rIdx = rowBase + clampIdx(x - radius, width) * 4;
+          const aIdx = rowBase + clampIdx(x + radius + 1, width) * 4;
+          rSum += src[aIdx] - src[rIdx]; gSum += src[aIdx + 1] - src[rIdx + 1]; bSum += src[aIdx + 2] - src[rIdx + 2];
+        }
+      }
+    } else {
+      for (let x = 0; x < width; x++){
+        let rSum = 0, gSum = 0, bSum = 0;
+        for (let dy = -radius; dy <= radius; dy++){
+          const idx = (clampIdx(dy, height) * width + x) * 4;
+          rSum += src[idx]; gSum += src[idx + 1]; bSum += src[idx + 2];
+        }
+        for (let y = 0; y < height; y++){
+          const idx = (y * width + x) * 4;
+          dst[idx] = rSum / windowSize; dst[idx + 1] = gSum / windowSize; dst[idx + 2] = bSum / windowSize; dst[idx + 3] = src[idx + 3];
+          const rIdx = (clampIdx(y - radius, height) * width + x) * 4;
+          const aIdx = (clampIdx(y + radius + 1, height) * width + x) * 4;
+          rSum += src[aIdx] - src[rIdx]; gSum += src[aIdx + 1] - src[rIdx + 1]; bSum += src[aIdx + 2] - src[rIdx + 2];
+        }
+      }
+    }
+  }
+
+  function boxBlur(data, width, height, radius){
+    const horiz = new Float32Array(data.length);
+    boxBlurPass(data, horiz, width, height, radius, true);
+    const out = new Float32Array(data.length);
+    boxBlurPass(horiz, out, width, height, radius, false);
+    return out;
+  }
+
+  // Clarity/sharpen (unsharp masking at different radii) and a simple
+  // blur-blend noise reduction.
+  function applyDetailAdjustments(imageData, width, height, customState){
+    const s = customState || state;
+    const clarity = s.clarity || 0, sharpen = s.sharpen || 0, noiseReduction = s.noiseReduction || 0;
+    if (clarity === 0 && sharpen === 0 && noiseReduction === 0) return;
+    const data = imageData.data;
+
+    if (noiseReduction !== 0){
+      const radius = Math.max(2, Math.round(width / 350));
+      const blurred = boxBlur(data, width, height, radius);
+      const strength = noiseReduction / 100 * 0.85;
+      for (let i = 0; i < data.length; i += 4){
+        data[i] = data[i] * (1 - strength) + blurred[i] * strength;
+        data[i + 1] = data[i + 1] * (1 - strength) + blurred[i + 1] * strength;
+        data[i + 2] = data[i + 2] * (1 - strength) + blurred[i + 2] * strength;
+      }
+    }
+    if (clarity !== 0){
+      const radius = Math.max(4, Math.round(width / 180));
+      const blurred = boxBlur(data, width, height, radius);
+      const amt = clarity / 100 * 0.65;
+      for (let i = 0; i < data.length; i += 4){
+        data[i] = clampByte(data[i] + amt * (data[i] - blurred[i]));
+        data[i + 1] = clampByte(data[i + 1] + amt * (data[i + 1] - blurred[i + 1]));
+        data[i + 2] = clampByte(data[i + 2] + amt * (data[i + 2] - blurred[i + 2]));
+      }
+    }
+    if (sharpen !== 0){
+      const blurred = boxBlur(data, width, height, 1);
+      const amt = sharpen / 100 * 0.7;
+      for (let i = 0; i < data.length; i += 4){
+        data[i] = clampByte(data[i] + amt * (data[i] - blurred[i]));
+        data[i + 1] = clampByte(data[i + 1] + amt * (data[i + 1] - blurred[i + 1]));
+        data[i + 2] = clampByte(data[i + 2] + amt * (data[i + 2] - blurred[i + 2]));
+      }
+    }
+  }
+
+  function drawVignette(){
+    if (state.vignette === 0) return;
+    const w = canvas.width, h = canvas.height;
+    const cx = w / 2, cy = h / 2;
+    const outerR = Math.sqrt(cx * cx + cy * cy);
+    const innerR = outerR * 0.35;
+    const grad = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
+    const strength = Math.abs(state.vignette) / 100;
+    if (state.vignette > 0){
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, `rgba(0,0,0,${strength * 0.85})`);
+    } else {
+      grad.addColorStop(0, 'rgba(255,255,255,0)');
+      grad.addColorStop(1, `rgba(255,255,255,${strength * 0.7})`);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  function drawTemperature(){
+    if (state.temperature === 0) return;
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = Math.min(Math.abs(state.temperature) / 100 * 0.45, 0.45);
+    ctx.fillStyle = state.temperature > 0 ? '#ff9a3d' : '#3d8bff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  let grainTexture = null;
+  function ensureGrainTexture(){
+    if (grainTexture) return grainTexture;
+    const size = 200;
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const gctx = c.getContext('2d');
+    const imgData = gctx.createImageData(size, size);
+    for (let i = 0; i < imgData.data.length; i += 4){
+      const v = Math.floor(Math.random() * 255);
+      imgData.data[i] = v; imgData.data[i + 1] = v; imgData.data[i + 2] = v; imgData.data[i + 3] = 255;
+    }
+    gctx.putImageData(imgData, 0, 0);
+    grainTexture = c;
+    return c;
+  }
+  function drawGrain(){
+    if (state.grain === 0) return;
+    const tex = ensureGrainTexture();
+    const pattern = ctx.createPattern(tex, 'repeat');
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = Math.min(state.grain / 100 * 0.5, 0.5);
+    ctx.fillStyle = pattern;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // ---------- Histogram ----------
+  // Reads the final rendered pixels (post tone/color/detail/vignette/grain)
+  // straight off the canvas, so it reflects exactly what's on screen.
+  function updateHistogram(){
+    const w = canvas.width, h = canvas.height;
+    if (!w || !h) return;
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const rBins = new Uint32Array(256), gBins = new Uint32Array(256), bBins = new Uint32Array(256);
+    // Sample at most ~40k pixels for speed on large images; stride stays a
+    // multiple of 4 so it always lands on a pixel boundary.
+    const totalPixels = w * h;
+    const step = Math.max(1, Math.floor(totalPixels / 40000));
+    const stride = step * 4;
+    for (let i = 0; i < data.length; i += stride){
+      rBins[data[i]]++; gBins[data[i + 1]]++; bBins[data[i + 2]]++;
+    }
+    drawHistogramBins(rBins, gBins, bBins);
+  }
+
+  function drawHistogramBins(rBins, gBins, bBins){
+    const w = histCanvas.width, h = histCanvas.height;
+    histCtx.clearRect(0, 0, w, h);
+    let max = 1;
+    for (let i = 0; i < 256; i++){ max = Math.max(max, rBins[i], gBins[i], bBins[i]); }
+
+    const logMax = Math.log(1 + max);
+    function drawChannel(bins, color){
+      histCtx.beginPath();
+      histCtx.moveTo(0, h);
+      for (let i = 0; i < 256; i++){
+        const x = (i / 255) * w;
+        // Log scaling compresses a dominant spike (e.g. a big flat dark
+        // background or strong vignette) far more than sqrt does, so the
+        // rest of the tonal range stays visible instead of flatlining.
+        const v = Math.log(1 + bins[i]) / logMax;
+        histCtx.lineTo(x, h - v * h);
+      }
+      histCtx.lineTo(w, h);
+      histCtx.closePath();
+      histCtx.fillStyle = color;
+      histCtx.fill();
+    }
+
+    histCtx.globalCompositeOperation = 'lighten';
+    drawChannel(rBins, 'rgba(255,80,80,0.7)');
+    drawChannel(gBins, 'rgba(70,230,120,0.7)');
+    drawChannel(bBins, 'rgba(80,150,255,0.7)');
+    histCtx.globalCompositeOperation = 'source-over';
+  }
+
+  function renderPreview(){
+    if (!workingCanvas) return;
+    const source = getRotatedSource();
+    canvas.width = source.width;
+    canvas.height = source.height;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(source, 0, 0);
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    applyBasicAdjustments(imageData);
+    applyDetailAdjustments(imageData, canvas.width, canvas.height);
+    ctx.putImageData(imageData, 0, 0);
+
+    drawVignette();
+    drawTemperature();
+    drawGrain();
+    applyMasksToCanvas();
+    updateHistogram();
+  }
+
+  // ---------- Masks ----------
+  // Each mask's shape is rendered as an alpha map using native canvas
+  // gradients (radial/linear) or a painted brush canvas, then that mask's
+  // own local adjustments are applied to a copy of the current image and
+  // clipped to the alpha map before being drawn back on top. This keeps
+  // local edits feathered and layered, without a per-pixel geometry loop.
+  function buildMaskAlphaCanvas(mask, w, h){
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const mctx = c.getContext('2d');
+
+    if (mask.type === 'radial'){
+      const cx = (mask.cx / 100) * w, cy = (mask.cy / 100) * h;
+      const rx = Math.max(1, (mask.rx / 100) * w), ry = Math.max(1, (mask.ry / 100) * h);
+      const featherFrac = clamp01(mask.feather / 100);
+      const innerStop = Math.max(0, 1 - featherFrac);
+      mctx.save();
+      mctx.translate(cx, cy);
+      mctx.scale(rx, ry);
+      const grad = mctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(innerStop, 'rgba(255,255,255,1)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      mctx.fillStyle = grad;
+      const left = -cx / rx, right = (w - cx) / rx, top = -cy / ry, bottom = (h - cy) / ry;
+      mctx.fillRect(left, top, right - left, bottom - top);
+      mctx.restore();
+    } else if (mask.type === 'linear'){
+      const x1 = (mask.x1 / 100) * w, y1 = (mask.y1 / 100) * h;
+      const x2 = (mask.x2 / 100) * w, y2 = (mask.y2 / 100) * h;
+      const grad = mctx.createLinearGradient(x1, y1, x2, y2);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      mctx.fillStyle = grad;
+      mctx.fillRect(0, 0, w, h);
+    } else if (mask.type === 'brush' && mask.alphaCanvas){
+      mctx.drawImage(mask.alphaCanvas, 0, 0, w, h);
+    }
+    return c;
+  }
+
+  function invertAlphaCanvas(posCanvas, w, h){
+    const inv = document.createElement('canvas');
+    inv.width = w; inv.height = h;
+    const ictx = inv.getContext('2d');
+    ictx.fillStyle = 'white';
+    ictx.fillRect(0, 0, w, h);
+    ictx.globalCompositeOperation = 'destination-out';
+    ictx.drawImage(posCanvas, 0, 0);
+    return inv;
+  }
+
+  function applyMasksToCanvas(){
+    if (!masks.length) return;
+    const w = canvas.width, h = canvas.height;
+    masks.forEach(mask => {
+      if (!mask.visible) return;
+      const hasAdjust = MASK_ADJUST_DEFS.some(d => (mask.adjust[d.key] || 0) !== 0);
+      if (!hasAdjust) return;
+
+      let alpha = buildMaskAlphaCanvas(mask, w, h);
+      if (mask.invert) alpha = invertAlphaCanvas(alpha, w, h);
+
+      const localCanvas = document.createElement('canvas');
+      localCanvas.width = w; localCanvas.height = h;
+      const lctx = localCanvas.getContext('2d');
+      lctx.drawImage(canvas, 0, 0);
+      const localData = lctx.getImageData(0, 0, w, h);
+      applyBasicAdjustments(localData, mask.adjust);
+      applyDetailAdjustments(localData, w, h, mask.adjust);
+      lctx.putImageData(localData, 0, 0);
+
+      lctx.globalCompositeOperation = 'destination-in';
+      lctx.drawImage(alpha, 0, 0);
+      lctx.globalCompositeOperation = 'source-over';
+
+      ctx.drawImage(localCanvas, 0, 0);
+    });
+  }
+
+  function renderUnfiltered(){
+    if (!workingCanvas) return;
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    canvas.width = workingCanvas.width;
+    canvas.height = workingCanvas.height;
+    ctx.clearRect(0,0,canvas.width, canvas.height);
+    ctx.drawImage(workingCanvas, 0, 0);
+    updateHistogram();
+  }
+
+  // ---------- Loading an image ----------
+  function loadImageFile(file){
+    if (!file || !file.type.startsWith('image/')) return;
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const scale = Math.min(1, MAX_DIM / Math.max(w, h));
+      w = Math.round(w * scale);
+      h = Math.round(h * scale);
+
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      workingCanvas = c;
+
+      URL.revokeObjectURL(url);
+      resetSliders(false);
+      masks = [];
+      activeMaskId = null;
+      emptyState.style.display = 'none';
+      canvasWrap.style.display = '';
+      noImageMsg.style.display = 'none';
+      panels.style.display = '';
+      [cropBtn, maskBtn, compareBtn, resetBtn, downloadBtn].forEach(b => b.disabled = false);
+      exitCropMode(false);
+      exitMaskMode(false);
+      renderPreview();
+    };
+    img.src = url;
+  }
+
+  fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) loadImageFile(e.target.files[0]);
+  });
+
+  ['dragover','dragenter'].forEach(evt => {
+    stage.addEventListener(evt, e => { e.preventDefault(); });
+  });
+  stage.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) loadImageFile(file);
+  });
+
+  // ---------- Sliders ----------
+  sliders.forEach(s => {
+    s.input.addEventListener('input', () => {
+      state[s.key] = parseInt(s.input.value, 10);
+      s.valueEl.textContent = state[s.key];
+      queueRender();
+    });
+    s.resetEl.addEventListener('click', () => {
+      state[s.key] = 0;
+      s.input.value = 0;
+      s.valueEl.textContent = '0';
+      queueRender();
+    });
+  });
+
+  function resetSliders(rerender = true){
+    sliders.forEach(s => {
+      state[s.key] = 0;
+      s.input.value = 0;
+      s.valueEl.textContent = '0';
+    });
+    if (rerender) queueRender();
+  }
+
+  resetBtn.addEventListener('click', () => {
+    resetSliders();
+    masks = [];
+    activeMaskId = null;
+    if (maskMode){ renderMaskList(); showMaskEmptyState(); }
+  });
+
+  // ---------- One-tap presets ----------
+  const PRESETS = {
+    original:  {},
+    vivid:     { exposure:5, contrast:20, saturation:20, vibrance:35, temperature:5, highlights:-15, shadows:15, whites:10, blacks:-10, clarity:20, sharpen:15 },
+    warmFilm:  { contrast:5, saturation:-10, vibrance:15, temperature:35, highlights:-10, shadows:10, blacks:5, clarity:5, noiseReduction:10, vignette:15, grain:20 },
+    coolTone:  { contrast:10, saturation:5, temperature:-30, highlights:-5, shadows:5, whites:5, blacks:-5, clarity:10, sharpen:10, vignette:10 },
+    bwClassic: { exposure:5, contrast:25, saturation:-100, highlights:-10, shadows:10, whites:15, blacks:-15, clarity:25, sharpen:20, vignette:20, grain:25 },
+    faded:     { contrast:-20, saturation:-15, temperature:10, highlights:-20, shadows:25, whites:-15, blacks:20, clarity:-15, noiseReduction:5, vignette:5, grain:10 }
+  };
+
+  function applyPreset(name){
+    const preset = PRESETS[name] || {};
+    sliders.forEach(s => {
+      const v = preset[s.key] ?? 0;
+      state[s.key] = v;
+      s.input.value = v;
+      s.valueEl.textContent = v;
+    });
+    queueRender();
+  }
+
+  document.getElementById('filterPresetGrid').querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyPreset(btn.dataset.preset));
+  });
+
+  // ---------- Compare (press and hold) ----------
+  function startCompare(e){
+    e.preventDefault();
+    renderUnfiltered();
+  }
+  function endCompare(){
+    renderPreview();
+  }
+  compareBtn.addEventListener('mousedown', startCompare);
+  compareBtn.addEventListener('touchstart', startCompare, { passive:false });
+  ['mouseup','mouseleave'].forEach(evt => compareBtn.addEventListener(evt, endCompare));
+  compareBtn.addEventListener('touchend', endCompare);
+
+  // ---------- Download ----------
+  downloadBtn.addEventListener('click', () => {
+    renderPreview();
+    const link = document.createElement('a');
+    link.download = 'edited-photo.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  // ---------- Crop mode ----------
+  function enterCropMode(){
+    if (!workingCanvas) return;
+    if (maskMode) exitMaskMode();
+    cropMode = true;
+    straighten = 0;
+    aspectLock = null;
+    straightenInput.value = 0;
+    straightenValueEl.textContent = '0°';
+    presetGrid.querySelectorAll('.preset-btn').forEach(b => b.classList.toggle('active', b.dataset.ratio === 'free'));
+    crop = { x: 10, y: 10, w: 80, h: 80 };
+    updateCropBoxStyle();
+    cropOverlay.style.display = '';
+    panels.style.display = 'none';
+    cropPanel.style.display = '';
+    cropBtn.disabled = true;
+    maskBtn.disabled = true;
+    renderPreview();
+  }
+  function exitCropMode(reenable = true){
+    cropMode = false;
+    straighten = 0;
+    cropOverlay.style.display = 'none';
+    cropPanel.style.display = 'none';
+    panels.style.display = '';
+    if (reenable){ cropBtn.disabled = false; maskBtn.disabled = false; }
+  }
+  cropBtn.addEventListener('click', enterCropMode);
+  cropCancelBtn.addEventListener('click', () => { exitCropMode(); renderPreview(); });
+
+  straightenInput.addEventListener('input', () => {
+    straighten = parseInt(straightenInput.value, 10);
+    straightenValueEl.textContent = straighten + '°';
+    queueRender();
+  });
+  straightenResetBtn.addEventListener('click', () => {
+    straighten = 0;
+    straightenInput.value = 0;
+    straightenValueEl.textContent = '0°';
+    queueRender();
+  });
+
+  presetGrid.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      presetGrid.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const ratio = btn.dataset.ratio;
+      if (ratio === 'free'){
+        aspectLock = null;
+        return;
+      }
+      const [rw, rh] = ratio.split(':').map(Number);
+      aspectLock = { rw, rh };
+      fitCropToAspect(rw, rh);
+    });
+  });
+
+  function fitCropToAspect(rw, rh){
+    if (!workingCanvas) return;
+    const canvasPxW = workingCanvas.width, canvasPxH = workingCanvas.height;
+    const targetRatio = rw / rh;
+    const canvasRatio = canvasPxW / canvasPxH;
+    let wPx, hPx;
+    if (targetRatio > canvasRatio){
+      wPx = canvasPxW;
+      hPx = canvasPxW / targetRatio;
+    } else {
+      hPx = canvasPxH;
+      wPx = canvasPxH * targetRatio;
+    }
+    const w = (wPx / canvasPxW) * 100;
+    const h = (hPx / canvasPxH) * 100;
+    crop = { x: (100 - w) / 2, y: (100 - h) / 2, w, h };
+    updateCropBoxStyle();
+  }
+
+  cropApplyBtn.addEventListener('click', () => {
+    if (!workingCanvas) return;
+    const source = getRotatedSource(); // straighten baked in, same W×H as workingCanvas
+    const sx = (crop.x / 100) * source.width;
+    const sy = (crop.y / 100) * source.height;
+    const sw = (crop.w / 100) * source.width;
+    const sh = (crop.h / 100) * source.height;
+
+    const newCanvas = document.createElement('canvas');
+    newCanvas.width = Math.max(1, Math.round(sw));
+    newCanvas.height = Math.max(1, Math.round(sh));
+    newCanvas.getContext('2d').drawImage(
+      source, sx, sy, sw, sh, 0, 0, newCanvas.width, newCanvas.height
+    );
+    workingCanvas = newCanvas;
+    exitCropMode();
+    renderPreview();
+  });
+
+  function updateCropBoxStyle(){
+    cropBox.style.left = crop.x + '%';
+    cropBox.style.top = crop.y + '%';
+    cropBox.style.width = crop.w + '%';
+    cropBox.style.height = crop.h + '%';
+  }
+
+  function clamp(v, min, max){ return Math.min(max, Math.max(min, v)); }
+
+  function getOverlayRect(){ return cropOverlay.getBoundingClientRect(); }
+
+  cropBox.addEventListener('pointerdown', e => {
+    if (e.target.classList.contains('handle')) return; // handled separately
+    e.preventDefault();
+    dragState = { mode:'move', startX:e.clientX, startY:e.clientY, orig:{...crop} };
+    cropBox.setPointerCapture(e.pointerId);
+  });
+
+  cropBox.querySelectorAll('.handle').forEach(handle => {
+    handle.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragState = { mode:'resize', corner: handle.dataset.corner, startX:e.clientX, startY:e.clientY, orig:{...crop} };
+      handle.setPointerCapture(e.pointerId);
+    });
+  });
+
+  window.addEventListener('pointermove', e => {
+    if (!dragState) return;
+    const rect = getOverlayRect();
+    const dxPct = ((e.clientX - dragState.startX) / rect.width) * 100;
+    const dyPct = ((e.clientY - dragState.startY) / rect.height) * 100;
+    const o = dragState.orig;
+
+    if (dragState.mode === 'move'){
+      crop.x = clamp(o.x + dxPct, 0, 100 - o.w);
+      crop.y = clamp(o.y + dyPct, 0, 100 - o.h);
+      crop.w = o.w; crop.h = o.h;
+    } else {
+      const MIN = 6;
+      let { x, y, w, h } = o;
+      switch(dragState.corner){
+        case 'se':
+          w = clamp(o.w + dxPct, MIN, 100 - o.x);
+          h = clamp(o.h + dyPct, MIN, 100 - o.y);
+          break;
+        case 'sw':
+          w = clamp(o.w - dxPct, MIN, o.x + o.w);
+          x = o.x + o.w - w;
+          h = clamp(o.h + dyPct, MIN, 100 - o.y);
+          break;
+        case 'ne':
+          w = clamp(o.w + dxPct, MIN, 100 - o.x);
+          h = clamp(o.h - dyPct, MIN, o.y + o.h);
+          y = o.y + o.h - h;
+          break;
+        case 'nw':
+          w = clamp(o.w - dxPct, MIN, o.x + o.w);
+          x = o.x + o.w - w;
+          h = clamp(o.h - dyPct, MIN, o.y + o.h);
+          y = o.y + o.h - h;
+          break;
+      }
+
+      // Lock to the chosen aspect ratio, in real pixel terms (percentages
+      // of width and height don't represent equal pixel distances).
+      if (aspectLock && workingCanvas){
+        const K = workingCanvas.width / workingCanvas.height;
+        const targetRatio = aspectLock.rw / aspectLock.rh;
+        h = w * K / targetRatio;
+        if (dragState.corner === 'ne' || dragState.corner === 'nw'){
+          y = o.y + o.h - h;
+        }
+        // Keep the box inside the frame; shrink proportionally if needed.
+        if (y < 0){ const scaleDown = (o.y + o.h) / h; w *= scaleDown; h *= scaleDown; if (dragState.corner==='nw') x = o.x+o.w-w; y = 0; }
+        if (y + h > 100){ const scaleDown = (100 - y) / h; w *= scaleDown; h *= scaleDown; if (dragState.corner==='sw') x = o.x+o.w-w; }
+        if (x < 0){ const scaleDown = (o.x + o.w) / w; w *= scaleDown; h = w*K/targetRatio; x = 0; }
+        if (x + w > 100){ const scaleDown = (100 - x) / w; w *= scaleDown; h = w*K/targetRatio; }
+      }
+
+      crop = { x, y, w, h };
+    }
+    updateCropBoxStyle();
+  });
+
+  window.addEventListener('pointerup', () => { dragState = null; });
+
+  // ---------- Masks: mode switching ----------
+  function getMaskOverlayRect(){ return maskOverlay.getBoundingClientRect(); }
+  function getActiveMask(){ return masks.find(m => m.id === activeMaskId) || null; }
+
+  function enterMaskMode(){
+    if (!workingCanvas) return;
+    if (cropMode) exitCropMode(false);
+    maskMode = true;
+    panels.style.display = 'none';
+    cropPanel.style.display = 'none';
+    maskPanel.style.display = '';
+    maskOverlay.style.display = '';
+    maskBtn.classList.add('active');
+    cropBtn.disabled = true;
+    renderMaskList();
+    if (activeMaskId && getActiveMask()) selectMask(activeMaskId);
+    else if (masks.length) selectMask(masks[masks.length - 1].id);
+    else showMaskEmptyState();
+    renderPreview();
+  }
+  function exitMaskMode(reenable = true){
+    maskMode = false;
+    maskPanel.style.display = 'none';
+    maskOverlay.style.display = 'none';
+    panels.style.display = '';
+    maskBtn.classList.remove('active');
+    if (reenable) cropBtn.disabled = false;
+    hideAllMaskGeometry();
+    renderPreview();
+  }
+  maskBtn.addEventListener('click', () => { maskMode ? exitMaskMode() : enterMaskMode(); });
+
+  // ---------- Masks: list + CRUD ----------
+  function showMaskEmptyState(){
+    activeMaskId = null;
+    maskEditGroup.style.display = 'none';
+    hideAllMaskGeometry();
+  }
+
+  function renderMaskList(){
+    maskList.innerHTML = '';
+    maskEmptyHint.style.display = masks.length ? 'none' : '';
+    masks.forEach(mask => {
+      const item = document.createElement('div');
+      item.className = 'mask-item' + (mask.id === activeMaskId ? ' active' : '');
+      const typeLabel = mask.type === 'radial' ? 'Radial' : mask.type === 'linear' ? 'Linear' : 'Brush';
+      item.innerHTML =
+        '<input type="checkbox" ' + (mask.visible ? 'checked' : '') + '>' +
+        '<span class="mtype">' + typeLabel + '</span>' +
+        '<span class="mname">' + mask.name + '</span>' +
+        '<button class="mdel" title="Delete">\u00d7</button>';
+      item.querySelector('input[type=checkbox]').addEventListener('click', e => {
+        e.stopPropagation();
+        mask.visible = e.target.checked;
+        queueRender();
+      });
+      item.querySelector('.mdel').addEventListener('click', e => {
+        e.stopPropagation();
+        deleteMask(mask.id);
+      });
+      item.addEventListener('click', () => selectMask(mask.id));
+      maskList.appendChild(item);
+    });
+  }
+
+  function nextMaskName(type){
+    const label = type === 'radial' ? 'Radial' : type === 'linear' ? 'Linear' : 'Brush';
+    const count = masks.filter(m => m.type === type).length + 1;
+    return label + ' ' + count;
+  }
+
+  function createMask(type){
+    if (!workingCanvas) return;
+    const id = 'm' + (maskIdCounter++);
+    const base = {
+      id, type, name: nextMaskName(type), visible: true, invert: false,
+      adjust: { exposure:0, contrast:0, highlights:0, shadows:0, saturation:0, clarity:0 }
+    };
+    if (type === 'radial'){
+      Object.assign(base, { cx:50, cy:50, rx:25, ry:25, feather:50 });
+    } else if (type === 'linear'){
+      Object.assign(base, { x1:50, y1:15, x2:50, y2:45 });
+    } else {
+      Object.assign(base, { brushSize:12, brushHardness:70, alphaCanvas:null });
+    }
+    masks.push(base);
+    renderMaskList();
+    selectMask(id);
+  }
+  document.getElementById('addRadialMask').addEventListener('click', () => createMask('radial'));
+  document.getElementById('addLinearMask').addEventListener('click', () => createMask('linear'));
+  document.getElementById('addBrushMask').addEventListener('click', () => createMask('brush'));
+
+  function deleteMask(id){
+    masks = masks.filter(m => m.id !== id);
+    if (activeMaskId === id) activeMaskId = null;
+    renderMaskList();
+    if (masks.length) selectMask(masks[masks.length - 1].id);
+    else showMaskEmptyState();
+    queueRender();
+  }
+  maskDeleteBtn.addEventListener('click', () => { if (activeMaskId) deleteMask(activeMaskId); });
+
+  // ---------- Masks: editor panel ----------
+  function selectMask(id){
+    activeMaskId = id;
+    renderMaskList();
+    const mask = getActiveMask();
+    if (!mask){ maskEditGroup.style.display = 'none'; hideAllMaskGeometry(); return; }
+
+    maskEditGroup.style.display = '';
+    maskEditTitle.textContent = mask.name;
+    maskInvertInput.checked = mask.invert;
+
+    const isRadial = mask.type === 'radial';
+    const isBrush = mask.type === 'brush';
+    maskFeatherRow.style.display = isRadial ? '' : 'none';
+    if (isRadial){
+      maskFeatherInput.value = mask.feather;
+      maskFeatherValueEl.textContent = mask.feather;
+    }
+    maskBrushToolsRow.style.display = isBrush ? '' : 'none';
+    maskBrushSizeRow.style.display = isBrush ? '' : 'none';
+    maskBrushHardnessRow.style.display = isBrush ? '' : 'none';
+    if (isBrush){
+      maskBrushSizeInput.value = mask.brushSize;
+      maskBrushSizeValueEl.textContent = mask.brushSize;
+      maskBrushHardnessInput.value = mask.brushHardness;
+      maskBrushHardnessValueEl.textContent = mask.brushHardness;
+      maskEraseToggle.classList.toggle('active', brushErase);
+    }
+
+    MASK_ADJUST_DEFS.forEach(def => {
+      const input = document.getElementById('madj_' + def.key);
+      const valueEl = document.getElementById('madjv_' + def.key);
+      if (input){ input.value = mask.adjust[def.key] || 0; valueEl.textContent = mask.adjust[def.key] || 0; }
+    });
+
+    maskOverlay.style.pointerEvents = isBrush ? 'auto' : 'none';
+    updateMaskGeometryOverlay();
+  }
+
+  function buildMaskAdjustSlidersUI(){
+    maskAdjustSliders.innerHTML = '';
+    MASK_ADJUST_DEFS.forEach(def => {
+      const row = document.createElement('div');
+      row.className = 'slider-row';
+      row.innerHTML =
+        '<div class="slider-label"><span class="name">' + def.name + '</span>' +
+        '<div class="val-group"><span class="slider-value" id="madjv_' + def.key + '">0</span></div></div>' +
+        '<input type="range" min="' + def.min + '" max="' + def.max + '" value="0" class="slider" id="madj_' + def.key + '">';
+      maskAdjustSliders.appendChild(row);
+      const input = row.querySelector('input');
+      const valueEl = row.querySelector('.slider-value');
+      input.addEventListener('input', () => {
+        const mask = getActiveMask();
+        if (!mask) return;
+        mask.adjust[def.key] = parseInt(input.value, 10);
+        valueEl.textContent = mask.adjust[def.key];
+        queueRender();
+      });
+    });
+  }
+  buildMaskAdjustSlidersUI();
+
+  maskInvertInput.addEventListener('change', () => {
+    const mask = getActiveMask();
+    if (!mask) return;
+    mask.invert = maskInvertInput.checked;
+    queueRender();
+  });
+  maskFeatherInput.addEventListener('input', () => {
+    const mask = getActiveMask();
+    if (!mask) return;
+    mask.feather = parseInt(maskFeatherInput.value, 10);
+    maskFeatherValueEl.textContent = mask.feather;
+    queueRender();
+  });
+  maskBrushSizeInput.addEventListener('input', () => {
+    const mask = getActiveMask();
+    if (!mask) return;
+    mask.brushSize = parseInt(maskBrushSizeInput.value, 10);
+    maskBrushSizeValueEl.textContent = mask.brushSize;
+  });
+  maskBrushHardnessInput.addEventListener('input', () => {
+    const mask = getActiveMask();
+    if (!mask) return;
+    mask.brushHardness = parseInt(maskBrushHardnessInput.value, 10);
+    maskBrushHardnessValueEl.textContent = mask.brushHardness;
+  });
+  maskEraseToggle.addEventListener('click', () => {
+    brushErase = !brushErase;
+    maskEraseToggle.classList.toggle('active', brushErase);
+  });
+
+  // ---------- Masks: on-canvas geometry ----------
+  function hideAllMaskGeometry(){
+    maskRadialBox.style.display = 'none';
+    maskLinearSvg.style.display = 'none';
+    maskBrushCursor.style.display = 'none';
+    hideMaskCoverageVis();
+  }
+  // Red, feather-aware preview of exactly which pixels a mask affects —
+  // shown while its geometry is actively being dragged or painted, same
+  // as Lightroom's mask overlay.
+  function showMaskCoverageVis(mask){
+    const w = canvas.width, h = canvas.height;
+    if (!w || !h) return;
+    maskVisCanvas.width = w; maskVisCanvas.height = h;
+    let alpha = buildMaskAlphaCanvas(mask, w, h);
+    if (mask.invert) alpha = invertAlphaCanvas(alpha, w, h);
+    maskVisCtx.clearRect(0, 0, w, h);
+    maskVisCtx.fillStyle = 'rgba(255,40,40,0.55)';
+    maskVisCtx.fillRect(0, 0, w, h);
+    maskVisCtx.globalCompositeOperation = 'destination-in';
+    maskVisCtx.drawImage(alpha, 0, 0);
+    maskVisCtx.globalCompositeOperation = 'source-over';
+    maskVisCanvas.style.display = '';
+  }
+  function hideMaskCoverageVis(){
+    maskVisCanvas.style.display = 'none';
+  }
+  function updateMaskGeometryOverlay(){
+    hideAllMaskGeometry();
+    const mask = getActiveMask();
+    if (!mask || !maskMode) return;
+    if (mask.type === 'radial'){
+      maskRadialBox.style.display = '';
+      updateRadialBoxStyle(mask);
+    } else if (mask.type === 'linear'){
+      maskLinearSvg.style.display = '';
+      updateLinearSvgStyle(mask);
+    }
+  }
+  function updateRadialBoxStyle(mask){
+    maskRadialBox.style.left = (mask.cx - mask.rx) + '%';
+    maskRadialBox.style.top = (mask.cy - mask.ry) + '%';
+    maskRadialBox.style.width = (mask.rx * 2) + '%';
+    maskRadialBox.style.height = (mask.ry * 2) + '%';
+  }
+  function updateLinearSvgStyle(mask){
+    maskLinearLine.setAttribute('x1', mask.x1 + '%');
+    maskLinearLine.setAttribute('y1', mask.y1 + '%');
+    maskLinearLine.setAttribute('x2', mask.x2 + '%');
+    maskLinearLine.setAttribute('y2', mask.y2 + '%');
+    maskLinearFO1.setAttribute('x', mask.x1 + '%');
+    maskLinearFO1.setAttribute('y', mask.y1 + '%');
+    maskLinearFO2.setAttribute('x', mask.x2 + '%');
+    maskLinearFO2.setAttribute('y', mask.y2 + '%');
+  }
+
+  // Radial: drag body to move, drag e/s handles to resize independently.
+  maskRadialBox.addEventListener('pointerdown', e => {
+    if (e.target.closest('.mr-handle')) return;
+    const mask = getActiveMask();
+    if (!mask) return;
+    e.preventDefault();
+    maskDragState = { mode:'radial-move', startX:e.clientX, startY:e.clientY, orig:{ cx:mask.cx, cy:mask.cy } };
+    maskRadialBox.setPointerCapture(e.pointerId);
+    showMaskCoverageVis(mask);
+  });
+  maskRadialBox.querySelectorAll('.mr-handle').forEach(h => {
+    h.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const mask = getActiveMask();
+      if (!mask) return;
+      maskDragState = { mode:'radial-resize', axis:h.dataset.mhandle, startX:e.clientX, startY:e.clientY, orig:{ rx:mask.rx, ry:mask.ry } };
+      h.setPointerCapture(e.pointerId);
+      showMaskCoverageVis(mask);
+    });
+  });
+
+  // Linear: drag either endpoint to redefine the gradient line directly.
+  [[maskLinearFO1,'p1'], [maskLinearFO2,'p2']].forEach(([fo, point]) => {
+    fo.querySelector('.mask-linear-handle').addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const mask = getActiveMask();
+      if (!mask) return;
+      maskDragState = { mode:'linear-' + point };
+      e.target.setPointerCapture(e.pointerId);
+      showMaskCoverageVis(mask);
+    });
+  });
+
+  window.addEventListener('pointermove', e => {
+    if (!maskDragState) return;
+    const mask = getActiveMask();
+    if (!mask) return;
+    const rect = getMaskOverlayRect();
+    if (maskDragState.mode === 'radial-move'){
+      const dxPct = ((e.clientX - maskDragState.startX) / rect.width) * 100;
+      const dyPct = ((e.clientY - maskDragState.startY) / rect.height) * 100;
+      mask.cx = clamp(maskDragState.orig.cx + dxPct, 0, 100);
+      mask.cy = clamp(maskDragState.orig.cy + dyPct, 0, 100);
+      updateRadialBoxStyle(mask);
+      showMaskCoverageVis(mask);
+      queueRender();
+    } else if (maskDragState.mode === 'radial-resize'){
+      const dxPct = ((e.clientX - maskDragState.startX) / rect.width) * 100;
+      const dyPct = ((e.clientY - maskDragState.startY) / rect.height) * 100;
+      if (maskDragState.axis === 'e') mask.rx = clamp(maskDragState.orig.rx + dxPct, 3, 100);
+      else mask.ry = clamp(maskDragState.orig.ry + dyPct, 3, 100);
+      updateRadialBoxStyle(mask);
+      showMaskCoverageVis(mask);
+      queueRender();
+    } else if (maskDragState.mode === 'linear-p1' || maskDragState.mode === 'linear-p2'){
+      const xPct = clamp(((e.clientX - rect.left) / rect.width) * 100, 0, 100);
+      const yPct = clamp(((e.clientY - rect.top) / rect.height) * 100, 0, 100);
+      if (maskDragState.mode === 'linear-p1'){ mask.x1 = xPct; mask.y1 = yPct; }
+      else { mask.x2 = xPct; mask.y2 = yPct; }
+      updateLinearSvgStyle(mask);
+      showMaskCoverageVis(mask);
+      queueRender();
+    }
+  });
+  window.addEventListener('pointerup', () => { maskDragState = null; hideMaskCoverageVis(); });
+
+  // Brush: paint directly on the image; size scales with the longer edge
+  // of the working canvas so it feels consistent across photo sizes.
+  function pointerToImagePx(e){
+    const rect = getMaskOverlayRect();
+    const relX = clamp01((e.clientX - rect.left) / rect.width);
+    const relY = clamp01((e.clientY - rect.top) / rect.height);
+    return { x: relX * canvas.width, y: relY * canvas.height };
+  }
+  function paintBrushStamp(mask, xPx, yPx, erase){
+    if (!mask.alphaCanvas || mask.alphaCanvas.width !== canvas.width || mask.alphaCanvas.height !== canvas.height){
+      const resized = document.createElement('canvas');
+      resized.width = canvas.width; resized.height = canvas.height;
+      if (mask.alphaCanvas) resized.getContext('2d').drawImage(mask.alphaCanvas, 0, 0, resized.width, resized.height);
+      mask.alphaCanvas = resized;
+    }
+    const actx = mask.alphaCanvas.getContext('2d');
+    const sizePx = (mask.brushSize / 100) * Math.max(canvas.width, canvas.height);
+    const hardness = clamp01(mask.brushHardness / 100);
+    const grad = actx.createRadialGradient(xPx, yPx, 0, xPx, yPx, sizePx);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(Math.max(0, hardness * 0.9), 'rgba(255,255,255,1)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    actx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+    actx.fillStyle = grad;
+    actx.beginPath();
+    actx.arc(xPx, yPx, sizePx, 0, Math.PI * 2);
+    actx.fill();
+    actx.globalCompositeOperation = 'source-over';
+  }
+  maskOverlay.addEventListener('pointerdown', e => {
+    const mask = getActiveMask();
+    if (!mask || mask.type !== 'brush') return;
+    e.preventDefault();
+    brushPainting = true;
+    maskOverlay.setPointerCapture(e.pointerId);
+    const p = pointerToImagePx(e);
+    paintBrushStamp(mask, p.x, p.y, brushErase);
+    showMaskCoverageVis(mask);
+    queueRender();
+  });
+  maskOverlay.addEventListener('pointermove', e => {
+    const mask = getActiveMask();
+    if (mask && mask.type === 'brush' && maskMode){
+      const rect = getMaskOverlayRect();
+      const dispRadius = (mask.brushSize / 100) * Math.max(rect.width, rect.height);
+      maskBrushCursor.style.display = '';
+      maskBrushCursor.style.width = (dispRadius * 2) + 'px';
+      maskBrushCursor.style.height = (dispRadius * 2) + 'px';
+      maskBrushCursor.style.left = (e.clientX - rect.left) + 'px';
+      maskBrushCursor.style.top = (e.clientY - rect.top) + 'px';
+    } else {
+      maskBrushCursor.style.display = 'none';
+    }
+    if (!brushPainting || !mask || mask.type !== 'brush') return;
+    const p = pointerToImagePx(e);
+    paintBrushStamp(mask, p.x, p.y, brushErase);
+    showMaskCoverageVis(mask);
+    queueRender();
+  });
+  maskOverlay.addEventListener('pointerleave', () => { maskBrushCursor.style.display = 'none'; });
+  window.addEventListener('pointerup', () => { brushPainting = false; hideMaskCoverageVis(); });
+})();
+</script>
+</body>
+</html>
