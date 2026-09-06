@@ -1,0 +1,1978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lumin — node compositor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#161617; --panel:#1c1c1e; --panel-2:#242426; --panel-3:#2b2b2e;
+    --border:#323234; --border-soft:#2a2a2c;
+    --text:#eeeeed; --text-dim:#8d8d92; --text-faint:#5c5c60;
+    --accent:#3f8cff; --accent-soft:rgba(63,140,255,0.16);
+    --danger:#e5554a;
+    --grid-dot: rgba(255,255,255,0.055);
+    --wire: #9a9a9e;
+
+    --cat-input:#4f9dd6;
+    --cat-color:#c9a13b;
+    --cat-detail:#7fb26a;
+    --cat-distort:#c25fc2;
+    --cat-generate:#5cc2a6;
+    --cat-finish:#d68a4f;
+    --cat-transform:#7d8bdb;
+    --cat-composite:#d65f6e;
+    --cat-output:#3f8cff;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'Inter',system-ui,sans-serif; overflow:hidden; user-select:none;
+  }
+  input,button,select{ font-family:inherit; }
+  .app{ display:flex; flex-direction:column; height:100vh; }
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:9px 14px; border-bottom:1px solid var(--border); background:var(--panel);
+    flex-shrink:0; gap:14px; flex-wrap:wrap; z-index:20;
+  }
+  .brand{ font-weight:700; font-size:14.5px; letter-spacing:0.2px; display:flex; align-items:center; gap:8px; }
+  .brand .mark{ width:18px; height:18px; border-radius:5px; background:linear-gradient(135deg,var(--accent),#8a5cf0); flex-shrink:0; }
+  .brand span{ color:var(--text-dim); font-weight:500; font-size:12.5px; }
+  .topbar-group{ display:flex; gap:6px; align-items:center; }
+  .btn{
+    appearance:none; border:1px solid var(--border); background:var(--panel-2);
+    color:var(--text); font-size:12.5px; font-weight:500;
+    padding:6px 11px; border-radius:6px; cursor:pointer;
+    transition:background .12s ease, border-color .12s ease, opacity .12s ease;
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+  }
+  .btn:hover:not(:disabled){ background:#313134; border-color:#48484c; }
+  .btn:disabled{ opacity:0.35; cursor:default; }
+  .btn-accent{ background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .btn-accent:hover:not(:disabled){ background:#5c9eff; }
+  .btn-icon{ padding:6px 8px; }
+  .divider-v{ width:1px; height:20px; background:var(--border); margin:0 2px; }
+
+  /* ---------- Main layout ---------- */
+  .main{ flex:1; display:flex; min-height:0; position:relative; }
+
+  /* ---------- Left palette ---------- */
+  .palette{
+    width:236px; flex-shrink:0; background:var(--panel); border-right:1px solid var(--border);
+    display:flex; flex-direction:column; z-index:15;
+  }
+  .palette-search{ padding:10px; border-bottom:1px solid var(--border); }
+  .palette-search input{
+    width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    border-radius:6px; padding:7px 9px; font-size:12.5px; outline:none;
+  }
+  .palette-search input:focus{ border-color:#48484c; }
+  .palette-list{ flex:1; overflow-y:auto; padding:6px 8px 14px; }
+  .palette-cat{ margin-bottom:2px; }
+  .palette-cat-head{
+    display:flex; align-items:center; gap:7px; padding:7px 6px; cursor:pointer;
+    font-size:11.5px; font-weight:600; letter-spacing:0.2px; color:var(--text-dim);
+    border-radius:5px;
+  }
+  .palette-cat-head:hover{ background:var(--panel-2); color:var(--text); }
+  .palette-cat-dot{ width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+  .palette-cat-head .chev{ margin-left:auto; font-size:9px; color:var(--text-faint); transition:transform .12s ease; }
+  .palette-cat.collapsed .chev{ transform:rotate(-90deg); }
+  .palette-cat.collapsed .palette-items{ display:none; }
+  .palette-item{
+    padding:6.5px 10px 6.5px 22px; font-size:12.5px; color:var(--text); cursor:grab;
+    border-radius:5px; display:flex; align-items:center; gap:8px;
+  }
+  .palette-item:hover{ background:var(--accent-soft); color:var(--accent); }
+  .palette-empty{ padding:14px 10px; font-size:12px; color:var(--text-faint); text-align:center; }
+
+  /* ---------- Node canvas ---------- */
+  .graph-wrap{ flex:1; position:relative; overflow:hidden; background:var(--bg);
+    background-image: radial-gradient(var(--grid-dot) 1.4px, transparent 1.4px);
+    background-size: 22px 22px; cursor:default; }
+  .graph-wrap.panning{ cursor:grabbing; }
+  #graphLayer{ position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; }
+  #wireSvg{ position:absolute; top:0; left:0; overflow:visible; pointer-events:none; transform-origin:0 0; }
+  .wire{ fill:none; stroke:var(--wire); stroke-width:2.2; opacity:0.85; pointer-events:stroke; cursor:pointer; }
+  .wire:hover{ stroke:var(--accent); opacity:1; }
+  .wire.selected{ stroke:var(--danger); }
+  .wire-drag{ fill:none; stroke:var(--accent); stroke-width:2.2; stroke-dasharray:5 4; pointer-events:none; }
+
+  .empty-canvas-hint{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    text-align:center; color:var(--text-faint); font-size:13px; pointer-events:none;
+    max-width:280px; line-height:1.6;
+  }
+  .empty-canvas-hint b{ color:var(--text-dim); }
+
+  /* ---------- Node ---------- */
+  .node{
+    position:absolute; width:210px; background:var(--panel-2); border:1px solid var(--border);
+    border-radius:9px; box-shadow:0 3px 14px rgba(0,0,0,0.35); overflow:visible;
+    font-size:12px;
+  }
+  .node.selected{ border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 4px 18px rgba(0,0,0,0.45); }
+  .node.dragging{ opacity:0.92; z-index:50; }
+  .node-header{
+    display:flex; align-items:center; gap:7px; padding:8px 10px; border-radius:8px 8px 0 0;
+    cursor:grab; font-weight:600; font-size:12px; color:#fff; letter-spacing:0.1px;
+  }
+  .node-header:active{ cursor:grabbing; }
+  .node-header .n-title{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .node-del{
+    width:16px; height:16px; border-radius:4px; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.22); color:rgba(255,255,255,0.85); font-size:11px; cursor:pointer; flex-shrink:0;
+  }
+  .node-del:hover{ background:rgba(0,0,0,0.4); }
+  .node-body{ padding:9px 10px 11px; display:flex; flex-direction:column; gap:9px; position:relative; }
+  .node-thumb{ width:100%; aspect-ratio:4/3; border-radius:6px; background:#0b0b0c; overflow:hidden; border:1px solid var(--border-soft); display:flex; align-items:center; justify-content:center; }
+  .node-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .node-thumb .ph{ color:var(--text-faint); font-size:10.5px; text-align:center; padding:6px; }
+
+  .row{ display:flex; flex-direction:column; gap:4px; position:relative; }
+  .row-label{ display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--text-dim); }
+  .row-label .val{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text); background:var(--panel-3); padding:1px 5px; border-radius:4px; min-width:26px; text-align:center; }
+
+  /* ---- Blender-style scrub slider ----
+     A single filled bar is the whole hit target: click-drag anywhere on it to
+     scrub the value (fine-drag with Shift), click without dragging to type an
+     exact value, or use the edge arrows to nudge by one step. */
+  .bslider{
+    position:relative; height:23px; border-radius:5px; background:var(--panel-3);
+    border:1px solid var(--border); cursor:ew-resize; user-select:none; overflow:hidden;
+  }
+  .bslider:hover{ border-color:#4c4c50; }
+  .bslider.scrubbing{ border-color:var(--accent); }
+  .bslider .bs-fill{
+    position:absolute; top:0; left:0; bottom:0; background:var(--accent-soft);
+    border-right:1px solid rgba(63,140,255,0.45); pointer-events:none;
+  }
+  .bslider .bs-face{
+    position:relative; z-index:2; height:100%; display:flex; align-items:center; justify-content:space-between;
+    padding:0 8px; pointer-events:none;
+  }
+  .bslider .bs-label{ font-size:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bslider .bs-value{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text); white-space:nowrap; margin-left:6px; }
+  .bslider .bs-arrow{
+    position:absolute; top:0; bottom:0; width:17px; display:flex; align-items:center; justify-content:center;
+    font-size:9px; color:var(--text-dim); opacity:0; z-index:3; cursor:ew-resize; transition:opacity .1s ease, background .1s ease;
+  }
+  .bslider .bs-arrow:hover{ background:rgba(255,255,255,0.06); color:var(--text); }
+  .bslider .bs-arrow.left{ left:0; border-radius:5px 0 0 5px; }
+  .bslider .bs-arrow.right{ right:0; border-radius:0 5px 5px 0; }
+  .bslider:hover .bs-arrow{ opacity:1; }
+  .bslider .bs-edit{
+    position:absolute; inset:0; width:100%; height:100%; z-index:4; box-sizing:border-box;
+    background:var(--panel-3); border:1px solid var(--accent); border-radius:5px; outline:none;
+    color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:11px; text-align:center; padding:0 8px;
+  }
+
+  select.n-select{
+    width:100%; background:var(--panel-3); border:1px solid var(--border); color:var(--text);
+    border-radius:5px; padding:5px 6px; font-size:11.5px; outline:none;
+  }
+  .seg-row{ display:flex; gap:4px; }
+  .seg-btn{ flex:1; padding:5px 0; border-radius:5px; border:1px solid var(--border); background:var(--panel-3); color:var(--text-dim); font-size:10.5px; text-align:center; cursor:pointer; }
+  .seg-btn.active{ background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
+  input[type=color]{ -webkit-appearance:none; appearance:none; width:100%; height:24px; border:1px solid var(--border); border-radius:5px; background:none; padding:0; cursor:pointer; }
+  input[type=color]::-webkit-color-swatch-wrapper{ padding:2px; }
+  input[type=color]::-webkit-color-swatch{ border:none; border-radius:3px; }
+  .color-pair{ display:flex; gap:6px; }
+  .color-pair > div{ flex:1; }
+  .file-btn{
+    width:100%; padding:7px 0; border-radius:6px; border:1px dashed var(--border); background:var(--panel-3);
+    color:var(--text-dim); font-size:11.5px; text-align:center; cursor:pointer;
+  }
+  .file-btn:hover{ border-color:var(--accent); color:var(--accent); }
+  .node-note{ font-size:10.5px; color:var(--text-faint); line-height:1.4; }
+
+  /* sockets — sized and styled like Blender's node sockets: bold filled
+     circles with a dark bezel ring, big enough to hit confidently. */
+  .socket{
+    position:absolute; width:16px; height:16px; border-radius:50%;
+    background:#3a3a3d; border:2.5px solid #0e0e0f;
+    box-shadow:0 0 0 1px rgba(255,255,255,0.06);
+    cursor:crosshair; z-index:6; transition:transform .08s ease, box-shadow .08s ease;
+  }
+  /* Invisible grab zone, much bigger than the visible dot (Blender-style hitbox).
+     ::before is centered on the dot via absolute+translate, so it never needs to
+     move even if the dot's own position/size changes. Clicks on it are received
+     by the .socket element itself. */
+  .socket::before{
+    content:''; position:absolute; top:50%; left:50%; width:30px; height:30px;
+    transform:translate(-50%,-50%); border-radius:50%;
+  }
+  .socket.filled{ background:var(--accent); }
+  .socket:hover{ transform:scale(1.28); box-shadow:0 0 0 4px var(--accent-soft); }
+  .socket-out{ right:-8px; }
+  .socket-in{ left:-8px; }
+  .socket-label{ position:absolute; font-size:9.5px; color:var(--text-faint); white-space:nowrap; pointer-events:none; }
+  .socket-label.out{ right:15px; }
+  .socket-label.in{ left:15px; }
+  /* magnetic snap feedback while dragging a wire near a compatible socket */
+  .socket.snap-target{ background:var(--accent); transform:scale(1.75); box-shadow:0 0 0 6px var(--accent-soft); }
+
+  /* drop-to-insert feedback while dragging a node over a wire */
+  .wire.insert-target{ stroke:var(--accent) !important; stroke-width:3.4; stroke-dasharray:1 6; opacity:1; }
+  .node.drop-target{ box-shadow:0 0 0 2px var(--accent), 0 4px 18px rgba(0,0,0,0.45); }
+
+  /* ---------- Preview panel ---------- */
+  .preview-panel{
+    width:308px; flex-shrink:0; background:var(--panel); border-left:1px solid var(--border);
+    display:flex; flex-direction:column; z-index:15;
+  }
+  .preview-head{ padding:11px 14px 9px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .preview-head .t{ font-size:12.5px; font-weight:600; }
+  .preview-head .sub{ font-size:10.5px; color:var(--text-faint); margin-top:2px; }
+  .preview-stage{ flex:1; display:flex; align-items:center; justify-content:center; padding:16px; min-height:0; }
+  .preview-stage canvas{ max-width:100%; max-height:100%; border-radius:6px; box-shadow:0 4px 22px rgba(0,0,0,0.5); background:#0b0b0c; }
+  .preview-empty{ color:var(--text-faint); font-size:12px; text-align:center; padding:0 20px; line-height:1.6; }
+  .preview-foot{ padding:12px 14px 14px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+  .preview-foot .hint{ font-size:10.5px; color:var(--text-faint); line-height:1.5; }
+
+  /* ---------- Floating add-node menu ---------- */
+  .add-menu{
+    position:fixed; width:238px; background:var(--panel-2); border:1px solid var(--border);
+    border-radius:9px; box-shadow:0 10px 34px rgba(0,0,0,0.5); z-index:100; overflow:hidden;
+    display:flex; flex-direction:column; max-height:70vh;
+  }
+  .add-menu-search{ padding:9px; border-bottom:1px solid var(--border); }
+  .add-menu-search input{ width:100%; background:var(--panel-3); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 8px; font-size:12px; outline:none; }
+  .add-menu-list{ overflow-y:auto; padding:6px; }
+
+  ::-webkit-scrollbar{ width:9px; height:9px; }
+  ::-webkit-scrollbar-thumb{ background:#3a3a3d; border-radius:5px; border:2px solid var(--panel); }
+  ::-webkit-scrollbar-track{ background:transparent; }
+
+  .zoom-hud{
+    position:absolute; bottom:12px; left:12px; background:var(--panel); border:1px solid var(--border);
+    border-radius:6px; padding:5px 9px; font-size:11px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace;
+    z-index:10; cursor:pointer;
+  }
+  .zoom-hud:hover{ color:var(--text); border-color:#48484c; }
+
+  /* rubber-band multi-select box (Shift+drag on empty canvas) */
+  .box-select{
+    position:absolute; border:1px solid var(--accent); background:rgba(63,140,255,0.12);
+    pointer-events:none; z-index:40; border-radius:2px;
+  }
+
+  /* muted / bypassed node — Blender-style dimmed-with-slash look */
+  .node.muted{ opacity:0.55; }
+  .node.muted .node-header{ background:var(--panel-3) !important; color:var(--text-dim); }
+  .node-mute{
+    width:16px; height:16px; border-radius:4px; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.22); color:rgba(255,255,255,0.85); font-size:10px; cursor:pointer; flex-shrink:0;
+  }
+  .node-mute:hover{ background:rgba(0,0,0,0.4); }
+  .node-mute.active{ background:rgba(255,255,255,0.85); color:#1c1c1e; }
+  .n-title-edit{
+    width:100%; background:rgba(0,0,0,0.28); border:none; color:#fff; font:inherit; font-weight:600;
+    outline:none; border-radius:3px; padding:0 2px;
+  }
+  .toast{
+    position:absolute; top:14px; left:50%; transform:translateX(-50%); background:var(--panel-2);
+    border:1px solid var(--border); padding:8px 14px; border-radius:7px; font-size:12px; z-index:60;
+    opacity:0; transition:opacity .2s ease; pointer-events:none;
+  }
+  .toast.show{ opacity:1; }
+
+  @media (max-width: 900px){
+    .palette{ width:190px; }
+    .preview-panel{ width:240px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand"><div class="mark"></div>Lumin <span>node compositor</span></div>
+    <div class="topbar-group">
+      <button class="btn" id="undoBtn" title="Undo (Ctrl+Z)">↶ Undo</button>
+      <button class="btn" id="redoBtn" title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+      <div class="divider-v"></div>
+      <button class="btn" id="frameBtn" title="Frame all nodes">⤢ Frame all</button>
+      <button class="btn" id="clearBtn" title="Clear graph">Clear graph</button>
+      <div class="divider-v"></div>
+      <button class="btn" id="saveProjectBtn" title="Save project as .json">⬇ Save project</button>
+      <button class="btn" id="loadProjectBtn" title="Load project from .json">⬆ Load project</button>
+      <div class="divider-v"></div>
+      <button class="btn btn-accent" id="exportBtn">Export PNG</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="palette">
+      <div class="palette-search"><input type="text" id="paletteSearch" placeholder="Search nodes…"></div>
+      <div class="palette-list" id="paletteList"></div>
+    </div>
+
+    <div class="graph-wrap" id="graphWrap">
+      <svg id="wireSvg"></svg>
+      <div id="graphLayer"></div>
+      <div class="empty-canvas-hint" id="emptyHint">
+        Drag a node in from the left, or right‑click / press <b>+ Add</b> to place one.<br><br>
+        Start with an <b>Image</b> node, wire it through whatever you like, and finish into an <b>Output</b> node.
+      </div>
+      <div class="zoom-hud" id="zoomHud">100%</div>
+    </div>
+
+    <div class="preview-panel">
+      <div class="preview-head">
+        <div>
+          <div class="t">Viewer</div>
+          <div class="sub" id="viewerSub">no Output node connected</div>
+        </div>
+        <button class="btn btn-icon" id="addBtn" title="Add node">+ Add</button>
+      </div>
+      <div class="preview-stage" id="previewStage">
+        <div class="preview-empty">Nothing to show yet. Add an <b>Image</b> node and an <b>Output</b> node, then connect them.</div>
+      </div>
+      <div class="preview-foot">
+        <button class="btn" id="compareBtn" style="justify-content:center;" title="Toggle original vs. edited (\)">⇄ Compare original</button>
+        <button class="btn btn-accent" id="exportBtn2" style="justify-content:center;">Export PNG</button>
+        <div class="hint">The viewer shows whatever is wired into the Output node's input, live. Shift+drag on the canvas box-selects multiple nodes; Ctrl+D duplicates; M mutes.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <input type="file" id="fileInput" accept="image/*" style="display:none;">
+  <input type="file" id="projectFileInput" accept="application/json,.json" style="display:none;">
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ============================================================
+   PIXEL MATH — ported from the original stack-based editor
+   ============================================================ */
+function clamp01(v){ return v<0?0:v>1?1:v; }
+function clampByte(v){ return v<0?0:v>255?255:v; }
+function srgbToLinear(c){ c=c/255; return c<=0.04045? c/12.92 : Math.pow((c+0.055)/1.055,2.4); }
+function linearToSrgb(c){ if(c<=0) return 0; return (c<=0.0031308? c*12.92 : 1.055*Math.pow(c,1/2.4)-0.055)*255; }
+const SRGB_TO_LINEAR = new Float32Array(256);
+for(let i=0;i<256;i++) SRGB_TO_LINEAR[i]=srgbToLinear(i);
+
+function clampIdx(i,size){ return i<0?0:(i>=size?size-1:i); }
+function boxBlurPass(src,dst,width,height,radius,horizontal){
+  const windowSize=radius*2+1;
+  if(horizontal){
+    for(let y=0;y<height;y++){
+      const rowBase=y*width*4; let rS=0,gS=0,bS=0;
+      for(let dx=-radius;dx<=radius;dx++){ const idx=rowBase+clampIdx(dx,width)*4; rS+=src[idx]; gS+=src[idx+1]; bS+=src[idx+2]; }
+      for(let x=0;x<width;x++){
+        const idx=rowBase+x*4;
+        dst[idx]=rS/windowSize; dst[idx+1]=gS/windowSize; dst[idx+2]=bS/windowSize; dst[idx+3]=src[idx+3];
+        const rIdx=rowBase+clampIdx(x-radius,width)*4, aIdx=rowBase+clampIdx(x+radius+1,width)*4;
+        rS+=src[aIdx]-src[rIdx]; gS+=src[aIdx+1]-src[rIdx+1]; bS+=src[aIdx+2]-src[rIdx+2];
+      }
+    }
+  } else {
+    for(let x=0;x<width;x++){
+      let rS=0,gS=0,bS=0;
+      for(let dy=-radius;dy<=radius;dy++){ const idx=(clampIdx(dy,height)*width+x)*4; rS+=src[idx]; gS+=src[idx+1]; bS+=src[idx+2]; }
+      for(let y=0;y<height;y++){
+        const idx=(y*width+x)*4;
+        dst[idx]=rS/windowSize; dst[idx+1]=gS/windowSize; dst[idx+2]=bS/windowSize; dst[idx+3]=src[idx+3];
+        const rIdx=(clampIdx(y-radius,height)*width+x)*4, aIdx=(clampIdx(y+radius+1,height)*width+x)*4;
+        rS+=src[aIdx]-src[rIdx]; gS+=src[aIdx+1]-src[rIdx+1]; bS+=src[aIdx+2]-src[rIdx+2];
+      }
+    }
+  }
+}
+function boxBlur(data,width,height,radius){
+  const horiz=new Float32Array(data.length); boxBlurPass(data,horiz,width,height,radius,true);
+  const out=new Float32Array(data.length); boxBlurPass(horiz,out,width,height,radius,false);
+  return out;
+}
+function boxBlur1(src,width,height,radius){
+  const windowSize=radius*2+1; const tmp=new Float32Array(width*height);
+  for(let y=0;y<height;y++){
+    const rowBase=y*width; let sum=0;
+    for(let dx=-radius;dx<=radius;dx++) sum+=src[rowBase+clampIdx(dx,width)];
+    for(let x=0;x<width;x++){
+      tmp[rowBase+x]=sum/windowSize;
+      const rIdx=rowBase+clampIdx(x-radius,width), aIdx=rowBase+clampIdx(x+radius+1,width);
+      sum+=src[aIdx]-src[rIdx];
+    }
+  }
+  const out=new Float32Array(width*height);
+  for(let x=0;x<width;x++){
+    let sum=0;
+    for(let dy=-radius;dy<=radius;dy++) sum+=tmp[clampIdx(dy,height)*width+x];
+    for(let y=0;y<height;y++){
+      const idx=y*width+x;
+      out[idx]=sum/windowSize;
+      const rIdx=clampIdx(y-radius,height)*width+x, aIdx=clampIdx(y+radius+1,height)*width+x;
+      sum+=tmp[aIdx]-tmp[rIdx];
+    }
+  }
+  return out;
+}
+function hexToRgb(hex){
+  const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||'#000000');
+  return m? [parseInt(m[1],16),parseInt(m[2],16),parseInt(m[3],16)] : [0,0,0];
+}
+
+/* ---- individual effect functions (d = Uint8ClampedArray RGBA) ---- */
+function fxExposure(d,amount){
+  if(!amount) return; const mul=Math.pow(2,amount/100*5);
+  for(let i=0;i<d.length;i+=4){
+    d[i]=clampByte(linearToSrgb(SRGB_TO_LINEAR[d[i]]*mul));
+    d[i+1]=clampByte(linearToSrgb(SRGB_TO_LINEAR[d[i+1]]*mul));
+    d[i+2]=clampByte(linearToSrgb(SRGB_TO_LINEAR[d[i+2]]*mul));
+  }
+}
+function fxContrast(d,amount){
+  if(!amount) return; const c255=amount*2.55; const f=(259*(c255+255))/(255*(259-c255));
+  for(let i=0;i<d.length;i+=4){ d[i]=clampByte(f*(d[i]-128)+128); d[i+1]=clampByte(f*(d[i+1]-128)+128); d[i+2]=clampByte(f*(d[i+2]-128)+128); }
+}
+function fxLevels(d,p){
+  const hlAmt=(p.highlights||0)/100*70, shAmt=(p.shadows||0)/100*70, whAmt=(p.whites||0)/100*90, blAmt=(p.blacks||0)/100*90;
+  if(!hlAmt&&!shAmt&&!whAmt&&!blAmt) return;
+  for(let i=0;i<d.length;i+=4){
+    let r=d[i],g=d[i+1],b=d[i+2]; const lum=0.299*r+0.587*g+0.114*b;
+    if(hlAmt){ const w=clamp01((lum-128)/127); r+=hlAmt*w; g+=hlAmt*w; b+=hlAmt*w; }
+    if(shAmt){ const w=clamp01((128-lum)/128); r+=shAmt*w; g+=shAmt*w; b+=shAmt*w; }
+    if(whAmt){ const w=clamp01((lum-200)/55); r+=whAmt*w; g+=whAmt*w; b+=whAmt*w; }
+    if(blAmt){ const w=clamp01((55-lum)/55); r+=blAmt*w; g+=blAmt*w; b+=blAmt*w; }
+    d[i]=clampByte(r); d[i+1]=clampByte(g); d[i+2]=clampByte(b);
+  }
+}
+function fxSaturation(d,amount){
+  if(!amount) return; const mul=1+amount/100;
+  for(let i=0;i<d.length;i+=4){ const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+    d[i]=clampByte(lum+mul*(d[i]-lum)); d[i+1]=clampByte(lum+mul*(d[i+1]-lum)); d[i+2]=clampByte(lum+mul*(d[i+2]-lum)); }
+}
+function fxVibrance(d,amount){
+  if(!amount) return; const vibAmt=amount/100;
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i],g=d[i+1],b=d[i+2]; const lum=0.299*r+0.587*g+0.114*b;
+    const maxC=Math.max(r,g,b), minC=Math.min(r,g,b); const curSat=maxC<=0?0:(maxC-minC)/maxC;
+    const isSkinish=r>g && g>=b && (r-b)>10 && (r-b)<130; const protect=isSkinish?0.5:1;
+    const boost=vibAmt*(1-curSat)*protect;
+    d[i]=clampByte(lum+(1+boost)*(r-lum)); d[i+1]=clampByte(lum+(1+boost)*(g-lum)); d[i+2]=clampByte(lum+(1+boost)*(b-lum));
+  }
+}
+function fxHueShift(d,degrees){
+  if(!degrees) return; const rad=degrees*Math.PI/180; const cosA=Math.cos(rad), sinA=Math.sin(rad);
+  // Rotate hue via the standard YIQ-like matrix approximation.
+  const m00=0.213+cosA*0.787-sinA*0.213, m01=0.715-cosA*0.715-sinA*0.715, m02=0.072-cosA*0.072+sinA*0.928;
+  const m10=0.213-cosA*0.213+sinA*0.143, m11=0.715+cosA*0.285+sinA*0.140, m12=0.072-cosA*0.072-sinA*0.283;
+  const m20=0.213-cosA*0.213-sinA*0.787, m21=0.715-cosA*0.715+sinA*0.715, m22=0.072+cosA*0.928+sinA*0.072;
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i],g=d[i+1],b=d[i+2];
+    d[i]=clampByte(r*m00+g*m01+b*m02); d[i+1]=clampByte(r*m10+g*m11+b*m12); d[i+2]=clampByte(r*m20+g*m21+b*m22);
+  }
+}
+function fxWhiteBalance(d,p){
+  const temp=(p.temperature||0)/100, tint=(p.tint||0)/100;
+  if(!temp&&!tint) return;
+  for(let i=0;i<d.length;i+=4){
+    d[i]=clampByte(d[i]+temp*24-tint*10); d[i+1]=clampByte(d[i+1]+tint*20); d[i+2]=clampByte(d[i+2]-temp*24-tint*10);
+  }
+}
+function fxInvert(d,amount){
+  if(!amount) return; const a=amount/100;
+  for(let i=0;i<d.length;i+=4){ d[i]=clampByte(d[i]+(255-2*d[i])*a); d[i+1]=clampByte(d[i+1]+(255-2*d[i+1])*a); d[i+2]=clampByte(d[i+2]+(255-2*d[i+2])*a); }
+}
+function fxBlackWhite(d,amount){
+  if(!amount) return; const a=amount/100;
+  for(let i=0;i<d.length;i+=4){ const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; d[i]=clampByte(d[i]+(lum-d[i])*a); d[i+1]=clampByte(d[i+1]+(lum-d[i+1])*a); d[i+2]=clampByte(d[i+2]+(lum-d[i+2])*a); }
+}
+function fxDuotone(d,p){
+  const amt=(p.amount||0)/100; if(!amt) return;
+  const sc=hexToRgb(p.shadowColor||'#16364a'), hc=hexToRgb(p.highlightColor||'#ffb05c');
+  for(let i=0;i<d.length;i+=4){
+    const lum=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])/255;
+    const dr=sc[0]+(hc[0]-sc[0])*lum, dg=sc[1]+(hc[1]-sc[1])*lum, db=sc[2]+(hc[2]-sc[2])*lum;
+    d[i]=clampByte(d[i]+(dr-d[i])*amt); d[i+1]=clampByte(d[i+1]+(dg-d[i+1])*amt); d[i+2]=clampByte(d[i+2]+(db-d[i+2])*amt);
+  }
+}
+function fxPosterize(d,amount){
+  if(!amount) return; const levels=Math.max(2,Math.round(16-(amount/100)*14)); const step=255/(levels-1);
+  for(let i=0;i<d.length;i+=4){ d[i]=clampByte(Math.round(d[i]/step)*step); d[i+1]=clampByte(Math.round(d[i+1]/step)*step); d[i+2]=clampByte(Math.round(d[i+2]/step)*step); }
+}
+function fxSolarize(d,amount){
+  if(!amount) return; const threshold=255-(amount/100)*140;
+  for(let i=0;i<d.length;i+=4){ let r=d[i],g=d[i+1],b=d[i+2]; if(r>threshold) r=255-r; if(g>threshold) g=255-g; if(b>threshold) b=255-b; d[i]=clampByte(r); d[i+1]=clampByte(g); d[i+2]=clampByte(b); }
+}
+function fxThermal(d,amount){
+  if(!amount) return; const amt=amount/100; const stops=[[8,8,64],[0,170,180],[255,220,0],[230,20,20]];
+  for(let i=0;i<d.length;i+=4){
+    const lum=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])/255; const t=Math.min(2.999,lum*3); const seg=t|0,f=t-seg;
+    const c0=stops[seg],c1=stops[seg+1];
+    d[i]=clampByte(d[i]+((c0[0]+(c1[0]-c0[0])*f)-d[i])*amt); d[i+1]=clampByte(d[i+1]+((c0[1]+(c1[1]-c0[1])*f)-d[i+1])*amt); d[i+2]=clampByte(d[i+2]+((c0[2]+(c1[2]-c0[2])*f)-d[i+2])*amt);
+  }
+}
+function fxRgbSplit(d,width,height,amount){
+  if(!amount) return; const src=new Uint8ClampedArray(d); const maxOffset=Math.max(1,Math.round(width*0.02)); const offset=Math.round(amount/100*maxOffset);
+  for(let y=0;y<height;y++){ const rowBase=y*width*4;
+    for(let x=0;x<width;x++){ const idx=rowBase+x*4; const rx=Math.min(width-1,Math.max(0,x-offset)); const bx=Math.min(width-1,Math.max(0,x+offset));
+      d[idx]=src[rowBase+rx*4]; d[idx+2]=src[rowBase+bx*4+2]; }
+  }
+}
+function fxGlitch(d,width,height,amount){
+  if(!amount) return; const amt=amount/100; const src=new Uint8ClampedArray(d);
+  let seed=42; const rand=()=>{ seed=(seed*9301+49297)%233280; return seed/233280; };
+  const maxBand=Math.max(6,Math.round(height*0.05)); const maxShift=Math.max(1,Math.round(width*0.15*amt));
+  let y=0;
+  while(y<height){
+    const bandH=Math.max(2,Math.round(rand()*maxBand)); const yEnd=Math.min(height,y+bandH);
+    const doShift=rand()<(0.35+amt*0.5); const shift=doShift?Math.round((rand()*2-1)*maxShift):0;
+    const chanOffset=(doShift&&rand()<0.4)?Math.round(rand()*maxShift*0.5):0;
+    for(let yy=y;yy<yEnd;yy++){ const rowBase=yy*width*4;
+      for(let x=0;x<width;x++){ const idx=rowBase+x*4; const sx=Math.min(width-1,Math.max(0,x-shift)); const rx=Math.min(width-1,Math.max(0,sx-chanOffset)); const bx=Math.min(width-1,Math.max(0,sx+chanOffset));
+        d[idx]=src[rowBase+rx*4]; d[idx+1]=src[rowBase+sx*4+1]; d[idx+2]=src[rowBase+bx*4+2]; }
+    }
+    y=yEnd;
+  }
+}
+function fxNeonEdges(d,width,height,amount){
+  if(!amount) return; const amt=amount/100; const src=new Uint8ClampedArray(d);
+  const lum=new Float32Array(width*height);
+  for(let i=0,p=0;i<src.length;i+=4,p++) lum[p]=0.299*src[i]+0.587*src[i+1]+0.114*src[i+2];
+  const edge=new Float32Array(width*height);
+  for(let y=0;y<height;y++){ const ym=Math.max(0,y-1), yp=Math.min(height-1,y+1);
+    for(let x=0;x<width;x++){ const xm=Math.max(0,x-1), xp=Math.min(width-1,x+1);
+      const tl=lum[ym*width+xm], tc=lum[ym*width+x], tr=lum[ym*width+xp];
+      const ml=lum[y*width+xm], mr=lum[y*width+xp];
+      const bl=lum[yp*width+xm], bc=lum[yp*width+x], br=lum[yp*width+xp];
+      const gx=(tr+2*mr+br)-(tl+2*ml+bl), gy=(bl+2*bc+br)-(tl+2*tc+tr);
+      edge[y*width+x]=Math.sqrt(gx*gx+gy*gy);
+    }
+  }
+  const glow=boxBlur1(edge,width,height,3); const split=Math.max(1,Math.round(amt*5));
+  const glowMix=0.6, punch=amt*2.2, darken=1-amt*0.65;
+  for(let y=0;y<height;y++){ const rowBase=y*width;
+    for(let x=0;x<width;x++){ const idx=(rowBase+x)*4;
+      const rx=Math.min(width-1,Math.max(0,x-split)), bx=Math.min(width-1,Math.max(0,x+split));
+      const rMag=edge[rowBase+rx]+glow[rowBase+rx]*glowMix, gMag=edge[rowBase+x]+glow[rowBase+x]*glowMix, bMag=edge[rowBase+bx]+glow[rowBase+bx]*glowMix;
+      d[idx]=clampByte(src[idx]*darken+rMag*punch); d[idx+1]=clampByte(src[idx+1]*darken+gMag*punch); d[idx+2]=clampByte(src[idx+2]*darken+bMag*punch);
+    }
+  }
+}
+function fxKaleidoscope(d,width,height,segmentsIn){
+  const src=new Uint8ClampedArray(d); const cx=width/2, cy=height/2; const segments=Math.max(3,segmentsIn||8); const wedge=(Math.PI*2)/segments;
+  for(let y=0;y<height;y++){ const dy=y-cy;
+    for(let x=0;x<width;x++){ const dx=x-cx; const radius=Math.sqrt(dx*dx+dy*dy); const angle=Math.atan2(dy,dx);
+      let a=((angle%wedge)+wedge)%wedge; if(a>wedge/2) a=wedge-a;
+      const sx=Math.min(width-1,Math.max(0,Math.round(cx+radius*Math.cos(a)))); const sy=Math.min(height-1,Math.max(0,Math.round(cy+radius*Math.sin(a))));
+      const sIdx=(sy*width+sx)*4, idx=(y*width+x)*4; d[idx]=src[sIdx]; d[idx+1]=src[sIdx+1]; d[idx+2]=src[sIdx+2];
+    }
+  }
+}
+function fxPixelate(d,width,height,amount){
+  if(!amount) return; const amt=amount/100; const maxBlock=Math.max(6,Math.round(Math.min(width,height)*0.1)); const bs=Math.max(2,Math.round(2+amt*(maxBlock-2)));
+  for(let by=0;by<height;by+=bs){ const bh=Math.min(bs,height-by);
+    for(let bx=0;bx<width;bx+=bs){ const bw=Math.min(bs,width-bx); let rs=0,gs=0,bsum=0;
+      for(let y=by;y<by+bh;y++){ let idx=(y*width+bx)*4; for(let x=0;x<bw;x++){ rs+=d[idx]; gs+=d[idx+1]; bsum+=d[idx+2]; idx+=4; } }
+      const count=bw*bh; const ra=rs/count, ga=gs/count, ba=bsum/count;
+      for(let y=by;y<by+bh;y++){ let idx=(y*width+bx)*4; for(let x=0;x<bw;x++){ d[idx]=ra; d[idx+1]=ga; d[idx+2]=ba; idx+=4; } }
+    }
+  }
+}
+function fxHalftone(d,width,height,cellIn,shape,colorMode){
+  const cell=Math.max(4,cellIn||10), half=cell/2; const cols=Math.ceil(width/cell), rows=Math.ceil(height/cell);
+  const avgR=new Float32Array(cols*rows), avgG=new Float32Array(cols*rows), avgB=new Float32Array(cols*rows);
+  for(let cy=0;cy<rows;cy++){ const y0=cy*cell, y1=Math.min(height,y0+cell);
+    for(let cx=0;cx<cols;cx++){ const x0=cx*cell, x1=Math.min(width,x0+cell); let sr=0,sg=0,sb=0;
+      for(let y=y0;y<y1;y++){ let idx=(y*width+x0)*4; for(let x=x0;x<x1;x++){ sr+=d[idx]; sg+=d[idx+1]; sb+=d[idx+2]; idx+=4; } }
+      const n=(y1-y0)*(x1-x0); const ci=cy*cols+cx; avgR[ci]=sr/n; avgG[ci]=sg/n; avgB[ci]=sb/n;
+    }
+  }
+  const useColor=colorMode==='color';
+  for(let y=0;y<height;y++){ const cy=(y/cell)|0;
+    for(let x=0;x<width;x++){ const cx=(x/cell)|0; const ci=cy*cols+cx;
+      const lum=(0.299*avgR[ci]+0.587*avgG[ci]+0.114*avgB[ci])/255;
+      const ddx=x-(cx*cell+half), ddy=y-(cy*cell+half); let inside;
+      if(shape==='lines'){ const barHalf=(1-lum)*half; inside=Math.abs(ddy)<barHalf; }
+      else if(shape==='squares'){ const side=Math.sqrt(1-lum)*cell*0.92; inside=Math.abs(ddx)<side/2 && Math.abs(ddy)<side/2; }
+      else if(shape==='cross'){ const r=(1-lum)*(half*1.15); inside=(Math.abs(ddx)+Math.abs(ddy))<r; }
+      else { const r=(1-lum)*(half*0.92); inside=(ddx*ddx+ddy*ddy)<r*r; }
+      const idx=(y*width+x)*4;
+      if(inside&&useColor){ d[idx]=avgR[ci]; d[idx+1]=avgG[ci]; d[idx+2]=avgB[ci]; } else { const v=inside?0:255; d[idx]=v; d[idx+1]=v; d[idx+2]=v; }
+    }
+  }
+}
+function fxSketch(d,width,height,amount){
+  if(!amount) return; const amt=amount/100; const src=new Uint8ClampedArray(d); const lum=new Float32Array(width*height);
+  for(let i=0,p=0;i<src.length;i+=4,p++) lum[p]=0.299*src[i]+0.587*src[i+1]+0.114*src[i+2];
+  for(let y=0;y<height;y++){ const ym=Math.max(0,y-1), yp=Math.min(height-1,y+1);
+    for(let x=0;x<width;x++){ const xm=Math.max(0,x-1), xp=Math.min(width-1,x+1);
+      const tl=lum[ym*width+xm], tc=lum[ym*width+x], tr=lum[ym*width+xp];
+      const ml=lum[y*width+xm], mr=lum[y*width+xp];
+      const bl=lum[yp*width+xm], bc=lum[yp*width+x], br=lum[yp*width+xp];
+      const gx=(tr+2*mr+br)-(tl+2*ml+bl), gy=(bl+2*bc+br)-(tl+2*tc+tr);
+      const val=clampByte(255-Math.sqrt(gx*gx+gy*gy)*1.4); const idx=(y*width+x)*4;
+      d[idx]+=(val-d[idx])*amt; d[idx+1]+=(val-d[idx+1])*amt; d[idx+2]+=(val-d[idx+2])*amt;
+    }
+  }
+}
+function fxFilmGrain(d,width,height,amount){
+  if(!amount) return; const amt=amount/100; const n=width*height; const fine=new Float32Array(n);
+  for(let p=0;p<n;p++) fine[p]=Math.random()*2-1; const blotch=boxBlur1(fine,width,height,2);
+  for(let i=0,p=0;i<d.length;i+=4,p++){ const lum=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])/255; const shadowWeight=1-Math.pow(lum,1.4);
+    const g=(fine[p]*0.6+blotch[p]*0.4)*amt*55*shadowWeight; d[i]=clampByte(d[i]+g); d[i+1]=clampByte(d[i+1]+g); d[i+2]=clampByte(d[i+2]+g);
+  }
+}
+function fxClaritySharpen(d,width,height,clarity,sharpen){
+  if(!clarity&&!sharpen) return; const n=width*height; let lum=new Float32Array(n);
+  for(let i=0,p=0;i<d.length;i+=4,p++) lum[p]=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+  if(clarity){ const radius=Math.max(4,Math.round(width/180)); const blurredLum=boxBlur1(lum,width,height,radius); const amt=clarity/100*0.65;
+    for(let i=0,p=0;i<d.length;i+=4,p++){ const delta=amt*(lum[p]-blurredLum[p]); d[i]=clampByte(d[i]+delta); d[i+1]=clampByte(d[i+1]+delta); d[i+2]=clampByte(d[i+2]+delta); }
+    if(sharpen){ lum=new Float32Array(n); for(let i=0,p=0;i<d.length;i+=4,p++) lum[p]=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; }
+  }
+  if(sharpen){ const blurredLum=boxBlur1(lum,width,height,1); const amt=sharpen/100*0.7;
+    for(let i=0,p=0;i<d.length;i+=4,p++){ const delta=amt*(lum[p]-blurredLum[p]); d[i]=clampByte(d[i]+delta); d[i+1]=clampByte(d[i+1]+delta); d[i+2]=clampByte(d[i+2]+delta); }
+  }
+}
+function fxNoiseReduction(d,width,height,amount){
+  if(!amount) return; const radius=Math.max(2,Math.round(width/350)); const blurred=boxBlur(d,width,height,radius); const strength=amount/100*0.85;
+  for(let i=0;i<d.length;i+=4){ d[i]=d[i]*(1-strength)+blurred[i]*strength; d[i+1]=d[i+1]*(1-strength)+blurred[i+1]*strength; d[i+2]=d[i+2]*(1-strength)+blurred[i+2]*strength; }
+}
+function fxGaussianBlur(d,width,height,radius){
+  if(!radius) return; let cur=d; for(let pass=0;pass<3;pass++){ cur=boxBlur(cur,width,height,Math.max(1,Math.round(radius/2))); }
+  for(let i=0;i<d.length;i+=4){ d[i]=cur[i]; d[i+1]=cur[i+1]; d[i+2]=cur[i+2]; }
+}
+
+/* ============================================================
+   GRAPH DATA MODEL
+   ============================================================ */
+let nodes = {};      // id -> node instance
+let links = [];       // {id, from, fromSock, to, toSock}
+let nextId = 1;
+let selectedNodeIds = new Set(); // multi-select — Shift+click or Shift+drag box-select adds to this
+let selectedLinkId = null;
+let projectSize = { w: 1200, h: 800 };
+let outputNodeId = null;
+
+function uid(prefix){ return prefix + (nextId++); }
+
+/* ============================================================
+   NODE TYPE REGISTRY
+   ============================================================ */
+const CATS = {
+  input:      { label:'Input',      color:'var(--cat-input)' },
+  color:      { label:'Color',      color:'var(--cat-color)' },
+  detail:     { label:'Detail',     color:'var(--cat-detail)' },
+  distort:    { label:'Distort',    color:'var(--cat-distort)' },
+  generate:   { label:'Generate',   color:'var(--cat-generate)' },
+  finish:     { label:'Finish',     color:'var(--cat-finish)' },
+  transform:  { label:'Transform',  color:'var(--cat-transform)' },
+  composite:  { label:'Composite',  color:'var(--cat-composite)' },
+  output:     { label:'Output',     color:'var(--cat-output)' },
+};
+
+function cloneCanvas(src){
+  const c=document.createElement('canvas'); c.width=src.width; c.height=src.height;
+  c.getContext('2d').drawImage(src,0,0); return c;
+}
+function pixelType(paramsDef, fn){
+  return {
+    inputs:['Image'], outputs:['Image'], params:paramsDef,
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null;
+      const out=cloneCanvas(src); const octx=out.getContext('2d');
+      const id=octx.getImageData(0,0,out.width,out.height);
+      fn(id.data,out.width,out.height,p); octx.putImageData(id,0,0); return out;
+    }
+  };
+}
+
+const NODE_TYPES = {
+
+  // ---------------- INPUT ----------------
+  image: {
+    category:'input', title:'Image', inputs:[], outputs:['Image'], params:[], special:'image-source',
+    compute(ins, p, node){ return node._src || null; }
+  },
+
+  // ---------------- COLOR ----------------
+  exposure: { category:'color', title:'Exposure', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
+    (d,w,h,p)=>fxExposure(d,p.amount)) },
+
+  contrast: { category:'color', title:'Contrast', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
+    (d,w,h,p)=>fxContrast(d,p.amount)) },
+
+  levels: { category:'color', title:'Levels', ...pixelType(
+    [
+      {key:'highlights',label:'Highlights',type:'slider',min:-100,max:100,step:1,default:0},
+      {key:'shadows',label:'Shadows',type:'slider',min:-100,max:100,step:1,default:0},
+      {key:'whites',label:'Whites',type:'slider',min:-100,max:100,step:1,default:0},
+      {key:'blacks',label:'Blacks',type:'slider',min:-100,max:100,step:1,default:0},
+    ],
+    (d,w,h,p)=>fxLevels(d,p)) },
+
+  whiteBalance: { category:'color', title:'White Balance', ...pixelType(
+    [
+      {key:'temperature',label:'Temperature',type:'slider',min:-100,max:100,step:1,default:0},
+      {key:'tint',label:'Tint',type:'slider',min:-100,max:100,step:1,default:0},
+    ],
+    (d,w,h,p)=>fxWhiteBalance(d,p)) },
+
+  saturation: { category:'color', title:'Saturation', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
+    (d,w,h,p)=>fxSaturation(d,p.amount)) },
+
+  vibrance: { category:'color', title:'Vibrance', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
+    (d,w,h,p)=>fxVibrance(d,p.amount)) },
+
+  hueShift: { category:'color', title:'Hue Shift', ...pixelType(
+    [{key:'degrees',label:'Degrees',type:'slider',min:-180,max:180,step:1,default:0,unit:'°'}],
+    (d,w,h,p)=>fxHueShift(d,p.degrees)) },
+
+  blackWhite: { category:'color', title:'Black & White', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100}],
+    (d,w,h,p)=>fxBlackWhite(d,p.amount)) },
+
+  invert: { category:'color', title:'Invert', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100}],
+    (d,w,h,p)=>fxInvert(d,p.amount)) },
+
+  duotone: { category:'color', title:'Duotone', ...pixelType(
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
+      {key:'shadowColor',label:'Shadows',type:'color',default:'#16364a'},
+      {key:'highlightColor',label:'Highlights',type:'color',default:'#ffb05c'},
+    ],
+    (d,w,h,p)=>fxDuotone(d,p)) },
+
+  // ---------------- DETAIL ----------------
+  clarity: { category:'detail', title:'Clarity', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
+    (d,w,h,p)=>fxClaritySharpen(d,w,h,p.amount,0)) },
+
+  sharpen: { category:'detail', title:'Sharpen', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:0}],
+    (d,w,h,p)=>fxClaritySharpen(d,w,h,0,p.amount)) },
+
+  blur: { category:'detail', title:'Blur', ...pixelType(
+    [{key:'radius',label:'Radius',type:'slider',min:0,max:60,step:1,default:0,unit:'px'}],
+    (d,w,h,p)=>fxGaussianBlur(d,w,h,p.radius)) },
+
+  noiseReduction: { category:'detail', title:'Noise Reduction', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:0}],
+    (d,w,h,p)=>fxNoiseReduction(d,w,h,p.amount)) },
+
+  // ---------------- DISTORT ----------------
+  rgbSplit: { category:'distort', title:'RGB Split', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
+    (d,w,h,p)=>fxRgbSplit(d,w,h,p.amount)) },
+
+  glitch: { category:'distort', title:'Glitch', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
+    (d,w,h,p)=>fxGlitch(d,w,h,p.amount)) },
+
+  pixelate: { category:'distort', title:'Pixelate', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
+    (d,w,h,p)=>fxPixelate(d,w,h,p.amount)) },
+
+  posterize: { category:'distort', title:'Posterize', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
+    (d,w,h,p)=>fxPosterize(d,p.amount)) },
+
+  solarize: { category:'distort', title:'Solarize', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
+    (d,w,h,p)=>fxSolarize(d,p.amount)) },
+
+  neonEdges: { category:'distort', title:'Neon Edges', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
+    (d,w,h,p)=>fxNeonEdges(d,w,h,p.amount)) },
+
+  kaleidoscope: { category:'distort', title:'Kaleidoscope', ...pixelType(
+    [{key:'segments',label:'Segments',type:'slider',min:3,max:16,step:1,default:8}],
+    (d,w,h,p)=>fxKaleidoscope(d,w,h,p.segments)) },
+
+  halftone: { category:'distort', title:'Halftone', ...pixelType(
+    [
+      {key:'cell',label:'Cell size',type:'slider',min:4,max:28,step:1,default:10},
+      {key:'shape',label:'Shape',type:'select',options:['dots','lines','squares','cross'],default:'dots'},
+      {key:'colorMode',label:'Color',type:'select',options:['mono','color'],default:'mono'},
+    ],
+    (d,w,h,p)=>fxHalftone(d,w,h,p.cell,p.shape,p.colorMode)) },
+
+  sketch: { category:'distort', title:'Sketch', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:70}],
+    (d,w,h,p)=>fxSketch(d,w,h,p.amount)) },
+
+  thermal: { category:'distort', title:'Thermal', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:70}],
+    (d,w,h,p)=>fxThermal(d,p.amount)) },
+
+  // ---------------- FINISH ----------------
+  vignette: {
+    category:'finish', title:'Vignette', inputs:['Image'], outputs:['Image'],
+    params:[{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:40}],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null; const out=cloneCanvas(src);
+      if(!p.amount) return out;
+      const octx=out.getContext('2d'); const w=out.width,h=out.height,cx=w/2,cy=h/2;
+      const outerR=Math.sqrt(cx*cx+cy*cy), innerR=outerR*0.35;
+      const grad=octx.createRadialGradient(cx,cy,innerR,cx,cy,outerR); const strength=Math.abs(p.amount)/100;
+      if(p.amount>0){ grad.addColorStop(0,'rgba(0,0,0,0)'); grad.addColorStop(1,`rgba(0,0,0,${strength*0.85})`); }
+      else { grad.addColorStop(0,'rgba(255,255,255,0)'); grad.addColorStop(1,`rgba(255,255,255,${strength*0.7})`); }
+      octx.fillStyle=grad; octx.fillRect(0,0,w,h); return out;
+    }
+  },
+  grain: { category:'finish', title:'Grain', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:35}],
+    (d,w,h,p)=>fxFilmGrain(d,w,h,p.amount)) },
+
+  // ---------------- TRANSFORM ----------------
+  rotate: {
+    category:'transform', title:'Rotate', inputs:['Image'], outputs:['Image'],
+    params:[{key:'angle',label:'Angle',type:'slider',min:-45,max:45,step:1,default:0,unit:'°'}],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null;
+      const w=src.width,h=src.height; const out=document.createElement('canvas'); out.width=w; out.height=h;
+      const octx=out.getContext('2d'); if(!p.angle){ octx.drawImage(src,0,0); return out; }
+      const rad=p.angle*Math.PI/180; const scale=Math.abs(Math.cos(rad))+Math.abs(Math.sin(rad))*(w/h);
+      octx.save(); octx.translate(w/2,h/2); octx.rotate(rad); octx.scale(scale,scale); octx.drawImage(src,-w/2,-h/2,w,h); octx.restore();
+      return out;
+    }
+  },
+  flip: {
+    category:'transform', title:'Flip', inputs:['Image'], outputs:['Image'],
+    params:[
+      {key:'horizontal',label:'Horizontal',type:'toggle',default:false},
+      {key:'vertical',label:'Vertical',type:'toggle',default:false},
+    ],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null; const w=src.width,h=src.height;
+      const out=document.createElement('canvas'); out.width=w; out.height=h; const octx=out.getContext('2d');
+      octx.save(); octx.translate(p.horizontal?w:0, p.vertical?h:0); octx.scale(p.horizontal?-1:1, p.vertical?-1:1); octx.drawImage(src,0,0); octx.restore();
+      return out;
+    }
+  },
+
+  // ---------------- GENERATE ----------------
+  solidColor: {
+    category:'generate', title:'Solid Color', inputs:[], outputs:['Image'],
+    params:[{key:'color',label:'Color',type:'color',default:'#3f8cff'}],
+    compute(ins,p){
+      const out=document.createElement('canvas'); out.width=projectSize.w; out.height=projectSize.h;
+      const octx=out.getContext('2d'); octx.fillStyle=p.color; octx.fillRect(0,0,out.width,out.height); return out;
+    }
+  },
+  gradient: {
+    category:'generate', title:'Gradient', inputs:[], outputs:['Image'],
+    params:[
+      {key:'colorA',label:'Color A',type:'color',default:'#3f8cff'},
+      {key:'colorB',label:'Color B',type:'color',default:'#161617'},
+      {key:'angle',label:'Angle',type:'slider',min:0,max:360,step:1,default:45,unit:'°'},
+    ],
+    compute(ins,p){
+      const out=document.createElement('canvas'); out.width=projectSize.w; out.height=projectSize.h;
+      const octx=out.getContext('2d'); const w=out.width,h=out.height; const rad=(p.angle||0)*Math.PI/180;
+      const dx=Math.cos(rad)*w/2, dy=Math.sin(rad)*h/2; const cx=w/2, cy=h/2;
+      const grad=octx.createLinearGradient(cx-dx,cy-dy,cx+dx,cy+dy);
+      grad.addColorStop(0,p.colorA); grad.addColorStop(1,p.colorB);
+      octx.fillStyle=grad; octx.fillRect(0,0,w,h); return out;
+    }
+  },
+  noise: {
+    category:'generate', title:'Noise', inputs:[], outputs:['Image'],
+    params:[
+      {key:'amount',label:'Contrast',type:'slider',min:0,max:100,step:1,default:100},
+      {key:'colorMode',label:'Type',type:'select',options:['mono','color'],default:'mono'},
+    ],
+    compute(ins,p){
+      const out=document.createElement('canvas'); out.width=projectSize.w; out.height=projectSize.h;
+      const octx=out.getContext('2d'); const id=octx.createImageData(out.width,out.height); const amt=(p.amount||100)/100;
+      for(let i=0;i<id.data.length;i+=4){
+        if(p.colorMode==='color'){ id.data[i]=Math.random()*255*amt; id.data[i+1]=Math.random()*255*amt; id.data[i+2]=Math.random()*255*amt; }
+        else { const v=Math.random()*255*amt; id.data[i]=v; id.data[i+1]=v; id.data[i+2]=v; }
+        id.data[i+3]=255;
+      }
+      octx.putImageData(id,0,0); return out;
+    }
+  },
+
+  // ---------------- COMPOSITE ----------------
+  mix: {
+    category:'composite', title:'Mix', inputs:['A','B'], outputs:['Image'],
+    params:[
+      {key:'mode',label:'Blend mode',type:'select',default:'source-over',
+        options:['source-over','multiply','screen','overlay','darken','lighten','color-dodge','color-burn','hard-light','soft-light','difference','exclusion']},
+      {key:'factor',label:'Factor',type:'slider',min:0,max:100,step:1,default:100},
+    ],
+    compute(ins,p){
+      const a=ins[0], b=ins[1]; if(!a && !b) return null; if(!a) return cloneCanvas(b); if(!b) return cloneCanvas(a);
+      const out=cloneCanvas(a); const octx=out.getContext('2d');
+      const iw=b.width, ih=b.height; const coverScale=Math.max(out.width/iw,out.height/ih);
+      const dw=iw*coverScale, dh=ih*coverScale; const dx=(out.width-dw)/2, dy=(out.height-dh)/2;
+      octx.save(); octx.globalAlpha=clamp01((p.factor??100)/100); octx.globalCompositeOperation=p.mode||'source-over';
+      octx.drawImage(b,dx,dy,dw,dh); octx.restore(); return out;
+    }
+  },
+
+  // ---------------- OUTPUT ----------------
+  output: {
+    category:'output', title:'Output', inputs:['Image'], outputs:[], params:[], special:'output',
+    compute(ins){ return ins[0] || null; }
+  },
+};
+
+const PALETTE_ORDER = ['input','color','detail','distort','finish','transform','generate','composite','output'];
+
+/* ============================================================
+   NODE INSTANCE / GRAPH OPS
+   ============================================================ */
+function makeParamDefaults(typeKey){
+  const def={}; NODE_TYPES[typeKey].params.forEach(pd=>{ def[pd.key]=pd.default; }); return def;
+}
+function addNode(typeKey, x, y, record){
+  const type=NODE_TYPES[typeKey]; if(!type) return null;
+  const id=uid('n');
+  const node={ id, type:typeKey, x, y, params:makeParamDefaults(typeKey), title:type.title, _src:null, _cache:null, _dirty:true };
+  nodes[id]=node;
+  if(typeKey==='output') outputNodeId = outputNodeId || id;
+  renderNode(node);
+  if(record!==false) pushHistory();
+  markDirty(id);
+  scheduleEval();
+  return node;
+}
+function removeNode(id){
+  if(!nodes[id]) return;
+  links = links.filter(l=>{
+    if(l.from===id || l.to===id){ const el=document.getElementById('wire_'+l.id); if(el) el.remove(); return false; }
+    return true;
+  });
+  const el=document.getElementById(id); if(el) el.remove();
+  delete nodes[id];
+  if(outputNodeId===id) outputNodeId = Object.keys(nodes).find(k=>nodes[k].type==='output') || null;
+  selectedNodeIds.delete(id);
+  scheduleEval();
+}
+function addLink(fromId,fromSock,toId,toSock,record){
+  // one link per input socket
+  links = links.filter(l=>!(l.to===toId && l.toSock===toSock));
+  const id=uid('l');
+  links.push({id, from:fromId, fromSock, to:toId, toSock});
+  markDirtyForward(toId);
+  drawWires();
+  if(record!==false) pushHistory();
+  scheduleEval();
+  return id;
+}
+function removeLink(id){
+  const l=links.find(x=>x.id===id); if(!l) return;
+  links=links.filter(x=>x.id!==id);
+  markDirtyForward(l.to);
+  drawWires();
+  scheduleEval();
+}
+function markDirty(id){ if(nodes[id]) nodes[id]._dirty=true; }
+function markDirtyForward(id){
+  const seen=new Set(); const stack=[id];
+  while(stack.length){ const cur=stack.pop(); if(seen.has(cur)) continue; seen.add(cur);
+    if(nodes[cur]) nodes[cur]._dirty=true;
+    links.filter(l=>l.from===cur).forEach(l=>stack.push(l.to));
+  }
+}
+
+/* ---- evaluation ---- */
+function evaluateNode(id, visiting){
+  const node=nodes[id]; if(!node) return null;
+  visiting = visiting || new Set();
+  if(visiting.has(id)) return null; // cycle guard
+  if(!node._dirty && node._cache!==undefined) return node._cache;
+  visiting.add(id);
+  const type=NODE_TYPES[node.type];
+  const inputCanvases = type.inputs.map((name,idx)=>{
+    const l=links.find(x=>x.to===id && x.toSock===idx);
+    if(!l) return null;
+    return evaluateNode(l.from, visiting);
+  });
+  let result=null;
+  if(node.muted && type.inputs.length && type.outputs.length){
+    result = inputCanvases[0] || null; // bypassed: pass the first input straight through
+  } else {
+    try{ result = type.compute(inputCanvases, node.params, node); }catch(e){ console.error('node compute error', node.type, e); result=null; }
+  }
+  node._cache=result; node._dirty=false;
+  visiting.delete(id);
+  return result;
+}
+
+let evalScheduled=false;
+function scheduleEval(){
+  if(evalScheduled) return; evalScheduled=true;
+  requestAnimationFrame(()=>{ evalScheduled=false; runEvaluation(); });
+}
+function runEvaluation(){
+  let outCanvas=null;
+  if(outputNodeId && nodes[outputNodeId]){
+    outCanvas = evaluateNode(outputNodeId);
+  }
+  if(compareMode){
+    const original=findFirstImageSource();
+    updatePreview(original || outCanvas, !!original);
+  } else {
+    updatePreview(outCanvas, false);
+  }
+}
+
+/* ============================================================
+   RENDERING: nodes, sockets, wires
+   ============================================================ */
+const graphWrap = document.getElementById('graphWrap');
+const graphLayer = document.getElementById('graphLayer');
+const wireSvg = document.getElementById('wireSvg');
+const emptyHint = document.getElementById('emptyHint');
+
+let viewX=40, viewY=40, viewScale=1;
+function applyView(){
+  graphLayer.style.transform = `translate(${viewX}px,${viewY}px) scale(${viewScale})`;
+  wireSvg.style.transform = graphLayer.style.transform;
+  document.getElementById('zoomHud').textContent = Math.round(viewScale*100)+'%';
+  emptyHint.style.display = Object.keys(nodes).length ? 'none' : '';
+}
+
+const NODE_WIDTH=210;
+function getSocketEl(nodeId, dir, idx){
+  const el=document.getElementById(nodeId); if(!el) return null;
+  return el.querySelector(`.socket-${dir}[data-idx="${idx}"]`);
+}
+function localSocketXY(nodeId, dir, idx){
+  const node=nodes[nodeId]; if(!node) return {x:node?node.x:0,y:node?node.y:0};
+  const sockEl=getSocketEl(nodeId,dir,idx);
+  if(!sockEl) return {x:node.x, y:node.y};
+  // Measure the socket dot's actual on-screen center and convert it back into
+  // graph-local space. This tracks the real rendered position exactly, so wires
+  // always land dead-on regardless of header height, wrapped titles, node
+  // content, zoom, or future CSS changes — no hardcoded offsets to drift out of sync.
+  const r = sockEl.getBoundingClientRect();
+  const wrap = graphWrap.getBoundingClientRect();
+  const cx = r.left + r.width/2 - wrap.left;
+  const cy = r.top + r.height/2 - wrap.top;
+  return { x: (cx - viewX) / viewScale, y: (cy - viewY) / viewScale };
+}
+
+function wirePath(p1,p2){
+  const dx=Math.max(40,Math.abs(p2.x-p1.x)*0.5);
+  return `M ${p1.x} ${p1.y} C ${p1.x+dx} ${p1.y}, ${p2.x-dx} ${p2.y}, ${p2.x} ${p2.y}`;
+}
+// Sample the same cubic bezier drawWires() renders for a link, so hit-testing
+// against a wire follows its actual curve rather than a straight line.
+function sampleWire(p1,p2,steps){
+  const dx=Math.max(40,Math.abs(p2.x-p1.x)*0.5);
+  const c1={x:p1.x+dx,y:p1.y}, c2={x:p2.x-dx,y:p2.y};
+  const pts=[];
+  for(let i=0;i<=steps;i++){
+    const t=i/steps, mt=1-t;
+    const x = mt*mt*mt*p1.x + 3*mt*mt*t*c1.x + 3*mt*t*t*c2.x + t*t*t*p2.x;
+    const y = mt*mt*mt*p1.y + 3*mt*mt*t*c1.y + 3*mt*t*t*c2.y + t*t*t*p2.y;
+    pts.push({x,y});
+  }
+  return pts;
+}
+// Find the existing link (if any) that a dragged node currently overlaps, so it
+// can be spliced in between. Only nodes with both an input and an output are
+// eligible, and a node's own wires are excluded.
+function findNearbyLink(node){
+  const type=NODE_TYPES[node.type];
+  if(!type.inputs.length || !type.outputs.length) return null;
+  const el=document.getElementById(node.id); if(!el) return null;
+  const r=el.getBoundingClientRect(), wrap=graphWrap.getBoundingClientRect();
+  const centerX=(r.left+r.width/2-wrap.left-viewX)/viewScale;
+  const centerY=(r.top+r.height/2-wrap.top-viewY)/viewScale;
+  let best=null, bestDist=Infinity;
+  links.forEach(l=>{
+    if(l.from===node.id || l.to===node.id) return;
+    const p1=localSocketXY(l.from,'out', outSockIndex(l.from, l.fromSock));
+    const p2=localSocketXY(l.to,'in', l.toSock);
+    const pts=sampleWire(p1,p2,24);
+    for(const pt of pts){
+      const dist=Math.hypot(pt.x-centerX, pt.y-centerY);
+      if(dist<bestDist){ bestDist=dist; best=l; }
+    }
+  });
+  return (best && bestDist<=WIRE_INSERT_PX) ? best : null;
+}
+function setWireInsertHighlight(link, node){
+  if(hoverWireLink && hoverWireLink.id!==(link&&link.id)){
+    const prevEl=document.getElementById('wire_'+hoverWireLink.id); if(prevEl) prevEl.classList.remove('insert-target');
+    const nodeEl=document.getElementById(node.id); if(nodeEl) nodeEl.classList.remove('drop-target');
+  }
+  hoverWireLink=link;
+  const nodeEl=document.getElementById(node.id);
+  if(link){
+    const wEl=document.getElementById('wire_'+link.id); if(wEl) wEl.classList.add('insert-target');
+    if(nodeEl) nodeEl.classList.add('drop-target');
+  } else if(nodeEl){ nodeEl.classList.remove('drop-target'); }
+}
+function clearWireInsertHighlight(node){
+  if(hoverWireLink){ const wEl=document.getElementById('wire_'+hoverWireLink.id); if(wEl) wEl.classList.remove('insert-target'); }
+  if(node){ const nodeEl=document.getElementById(node.id); if(nodeEl) nodeEl.classList.remove('drop-target'); }
+  hoverWireLink=null;
+}
+// Splice a node into the middle of an existing link: old source -> node -> old target.
+function insertNodeIntoLink(node, link){
+  const type=NODE_TYPES[node.type];
+  if(!type.inputs.length || !type.outputs.length) return;
+  const { from, fromSock, to, toSock } = link;
+  const fromNode=nodes[from], toNode=nodes[to];
+  removeLink(link.id);
+  addLink(from, fromSock, node.id, 0, false);
+  addLink(node.id, type.outputs[0], to, toSock, false);
+  makeRoomForInsertedNode(node, fromNode, toNode);
+  renderNode(fromNode); renderNode(node); renderNode(toNode);
+  drawWires();
+  showToast('Inserted '+node.title+' into the wire');
+}
+// Shift a node and everything connected further downstream (or upstream) by dx,
+// so an inserted node doesn't end up overlapping its new neighbors — mirrors the
+// "push the chain apart" behavior Blender's node editor does on link-drop.
+function shiftChain(startId, dx, direction, visited){
+  if(visited.has(startId)) return;
+  visited.add(startId);
+  const node=nodes[startId]; if(!node) return;
+  node.x += dx;
+  const el=document.getElementById(startId); if(el) el.style.left=node.x+'px';
+  const nextIds = direction==='downstream'
+    ? links.filter(l=>l.from===startId).map(l=>l.to)
+    : links.filter(l=>l.to===startId).map(l=>l.from);
+  nextIds.forEach(id=>shiftChain(id, dx, direction, visited));
+}
+function makeRoomForInsertedNode(newNode, fromNode, toNode){
+  const excluded=new Set([newNode.id]);
+  if(toNode){
+    const neededToX = newNode.x + NODE_WIDTH + INSERT_MARGIN;
+    if(toNode.x < neededToX) shiftChain(toNode.id, neededToX-toNode.x, 'downstream', new Set(excluded));
+  }
+  if(fromNode){
+    const fromRightEdge = fromNode.x + NODE_WIDTH;
+    const maxAllowedRightEdge = newNode.x - INSERT_MARGIN;
+    if(fromRightEdge > maxAllowedRightEdge) shiftChain(fromNode.id, maxAllowedRightEdge-fromRightEdge, 'upstream', new Set(excluded));
+  }
+}
+
+function drawWires(){
+  wireSvg.innerHTML='';
+  links.forEach(l=>{
+    const p1=localSocketXY(l.from,'out', outSockIndex(l.from, l.fromSock));
+    const p2=localSocketXY(l.to,'in', l.toSock);
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('class','wire'+(selectedLinkId===l.id?' selected':''));
+    path.setAttribute('d', wirePath(p1,p2));
+    path.setAttribute('id','wire_'+l.id);
+    path.addEventListener('click',(e)=>{ e.stopPropagation(); selectedLinkId=l.id; drawWires(); });
+    path.addEventListener('dblclick',(e)=>{ e.stopPropagation(); removeLink(l.id); });
+    wireSvg.appendChild(path);
+  });
+  sizeSvg();
+}
+function outSockIndex(nodeId, sockName){
+  const node=nodes[nodeId]; if(!node) return 0;
+  const outs=NODE_TYPES[node.type].outputs; const i=outs.indexOf(sockName); return i<0?0:i;
+}
+function sizeSvg(){
+  let maxX=1200, maxY=900;
+  Object.values(nodes).forEach(n=>{ maxX=Math.max(maxX,n.x+400); maxY=Math.max(maxY,n.y+400); });
+  wireSvg.setAttribute('width',maxX); wireSvg.setAttribute('height',maxY);
+  wireSvg.style.width=maxX+'px'; wireSvg.style.height=maxY+'px';
+}
+
+// A Blender-style number slider: the whole bar is the drag surface (drag L/R
+// to scrub the value, hold Shift for fine control), a plain click with no
+// drag switches to a text field for typing an exact value, and small arrows
+// fade in at each edge to nudge by one step.
+function buildBlenderSlider(node, pd){
+  const min=pd.min, max=pd.max, step=pd.step||1, decimals=(String(step).split('.')[1]||'').length;
+  const wrap=document.createElement('div'); wrap.className='bslider';
+  const fill=document.createElement('div'); fill.className='bs-fill';
+  const face=document.createElement('div'); face.className='bs-face';
+  const labelEl=document.createElement('span'); labelEl.className='bs-label'; labelEl.textContent=pd.label;
+  const valueEl=document.createElement('span'); valueEl.className='bs-value';
+  face.appendChild(labelEl); face.appendChild(valueEl);
+  const arrowL=document.createElement('div'); arrowL.className='bs-arrow left'; arrowL.textContent='◂';
+  const arrowR=document.createElement('div'); arrowR.className='bs-arrow right'; arrowR.textContent='▸';
+  wrap.appendChild(fill); wrap.appendChild(face); wrap.appendChild(arrowL); wrap.appendChild(arrowR);
+
+  function fmt(v){ return decimals? v.toFixed(decimals) : Math.round(v)+''; }
+  function setValue(v, commit){
+    v=Math.min(max,Math.max(min, Math.round(v/step)*step));
+    v=parseFloat(v.toFixed(6));
+    node.params[pd.key]=v;
+    valueEl.textContent=fmt(v)+(pd.unit||'');
+    fill.style.width=((v-min)/(max-min)*100)+'%';
+    markDirtyForward(node.id); scheduleEval();
+    if(commit) pushHistory();
+  }
+  setValue(node.params[pd.key], false);
+
+  function enterEdit(){
+    wrap.classList.add('editing');
+    const input=document.createElement('input'); input.className='bs-edit'; input.type='text';
+    input.value=fmt(node.params[pd.key]);
+    fill.style.visibility='hidden'; face.style.visibility='hidden'; arrowL.style.visibility='hidden'; arrowR.style.visibility='hidden';
+    wrap.appendChild(input);
+    input.addEventListener('mousedown', e=>e.stopPropagation());
+    input.focus(); input.select();
+    function commit(apply){
+      if(apply){ const n=parseFloat(input.value); if(!isNaN(n)) setValue(n, true); }
+      input.remove(); fill.style.visibility=''; face.style.visibility=''; arrowL.style.visibility=''; arrowR.style.visibility='';
+      wrap.classList.remove('editing');
+    }
+    input.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ commit(true); }
+      else if(e.key==='Escape'){ commit(false); }
+    });
+    input.addEventListener('blur', ()=>commit(true));
+  }
+
+  let dragging=false, startX=0, startVal=0;
+  wrap.addEventListener('mousedown', (e)=>{
+    e.stopPropagation();
+    if(e.target===arrowL||e.target===arrowR) return;
+    dragging=false; startX=e.clientX; startVal=node.params[pd.key];
+    const rect=wrap.getBoundingClientRect();
+    function onMove(ev){
+      const dx=ev.clientX-startX;
+      if(!dragging && Math.abs(dx)>3){ dragging=true; wrap.classList.add('scrubbing'); }
+      if(!dragging) return;
+      const sensitivity = ev.shiftKey ? 0.15 : 1;
+      const ratio = dx / rect.width * sensitivity;
+      setValue(startVal + ratio*(max-min), false);
+    }
+    function onUp(){
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      wrap.classList.remove('scrubbing');
+      if(dragging){ pushHistory(); }
+      else { enterEdit(); }
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+  arrowL.addEventListener('mousedown', e=>{ e.stopPropagation(); setValue(node.params[pd.key]-step, true); });
+  arrowR.addEventListener('mousedown', e=>{ e.stopPropagation(); setValue(node.params[pd.key]+step, true); });
+
+  return wrap;
+}
+
+function buildControl(node, pd){
+  const row=document.createElement('div'); row.className='row';
+  const val = node.params[pd.key];
+  if(pd.type==='slider'){
+    row.appendChild(buildBlenderSlider(node, pd));
+  } else if(pd.type==='select'){
+    row.innerHTML = `<div class="row-label"><span>${pd.label}</span></div>`;
+    const sel=document.createElement('select'); sel.className='n-select';
+    pd.options.forEach(o=>{ const opt=document.createElement('option'); opt.value=o; opt.textContent=o; if(o===val) opt.selected=true; sel.appendChild(opt); });
+    sel.addEventListener('mousedown',e=>e.stopPropagation());
+    sel.addEventListener('change', ()=>{ node.params[pd.key]=sel.value; markDirtyForward(node.id); scheduleEval(); pushHistory(); });
+    row.appendChild(sel);
+  } else if(pd.type==='color'){
+    row.innerHTML = `<div class="row-label"><span>${pd.label}</span></div>`;
+    const inp=document.createElement('input'); inp.type='color'; inp.value=val;
+    inp.addEventListener('mousedown',e=>e.stopPropagation());
+    inp.addEventListener('input', ()=>{ node.params[pd.key]=inp.value; markDirtyForward(node.id); scheduleEval(); });
+    inp.addEventListener('change', ()=>pushHistory());
+    row.appendChild(inp);
+  } else if(pd.type==='toggle'){
+    row.innerHTML = `<div class="row-label"><span>${pd.label}</span></div>`;
+    const seg=document.createElement('div'); seg.className='seg-row';
+    const on=document.createElement('div'); on.className='seg-btn'+(val?' active':''); on.textContent='On';
+    const off=document.createElement('div'); off.className='seg-btn'+(!val?' active':''); off.textContent='Off';
+    on.addEventListener('click',()=>{ node.params[pd.key]=true; on.classList.add('active'); off.classList.remove('active'); markDirtyForward(node.id); scheduleEval(); pushHistory(); });
+    off.addEventListener('click',()=>{ node.params[pd.key]=false; off.classList.add('active'); on.classList.remove('active'); markDirtyForward(node.id); scheduleEval(); pushHistory(); });
+    seg.appendChild(on); seg.appendChild(off); row.appendChild(seg);
+  }
+  return row;
+}
+
+function renderNode(node){
+  const type=NODE_TYPES[node.type]; const cat=CATS[type.category];
+  let el=document.getElementById(node.id);
+  const isNew = !el;
+  if(!el){ el=document.createElement('div'); el.className='node'; el.id=node.id; graphLayer.appendChild(el); }
+  el.style.left=node.x+'px'; el.style.top=node.y+'px';
+  el.innerHTML='';
+
+  el.classList.toggle('muted', !!node.muted);
+  const header=document.createElement('div'); header.className='node-header'; header.style.background=cat.color;
+  const titleSpan=document.createElement('span'); titleSpan.className='n-title'; titleSpan.textContent=node.title;
+  titleSpan.title='Double-click to rename';
+  titleSpan.addEventListener('mousedown', e=>e.stopPropagation());
+  titleSpan.addEventListener('dblclick', (e)=>{
+    e.stopPropagation();
+    const input=document.createElement('input'); input.className='n-title-edit'; input.value=node.title;
+    input.addEventListener('mousedown', ev=>ev.stopPropagation());
+    titleSpan.replaceWith(input); input.focus(); input.select();
+    function commit(){ node.title=input.value.trim()||NODE_TYPES[node.type].title; renderNode(node); pushHistory(); }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', ev=>{ if(ev.key==='Enter') input.blur(); else if(ev.key==='Escape'){ input.value=node.title; input.blur(); } });
+  });
+  header.appendChild(titleSpan);
+  const canMute = type.inputs.length>0 && type.outputs.length>0;
+  if(canMute){
+    const mute=document.createElement('div'); mute.className='node-mute'+(node.muted?' active':''); mute.textContent='⏻';
+    mute.title='Mute / bypass this node (M)';
+    mute.addEventListener('mousedown',e=>e.stopPropagation());
+    mute.addEventListener('click',(e)=>{ e.stopPropagation(); toggleMuteNodes([node.id]); });
+    header.appendChild(mute);
+  }
+  const del=document.createElement('div'); del.className='node-del'; del.textContent='✕';
+  del.addEventListener('mousedown',e=>e.stopPropagation());
+  del.addEventListener('click',(e)=>{ e.stopPropagation(); removeNode(node.id); drawWires(); pushHistory(); });
+  header.appendChild(del);
+  el.appendChild(header);
+
+  const body=document.createElement('div'); body.className='node-body';
+
+  if(type.special==='image-source'){
+    const thumb=document.createElement('div'); thumb.className='node-thumb';
+    if(node._thumbUrl){ thumb.innerHTML=`<img src="${node._thumbUrl}">`; }
+    else { thumb.innerHTML=`<div class="ph">No photo loaded</div>`; }
+    body.appendChild(thumb);
+    const btn=document.createElement('div'); btn.className='file-btn'; btn.textContent=node._thumbUrl? 'Replace photo' : 'Choose photo…';
+    btn.addEventListener('mousedown',e=>e.stopPropagation());
+    btn.addEventListener('click', ()=>{ pendingImageNodeId=node.id; document.getElementById('fileInput').click(); });
+    body.appendChild(btn);
+  } else if(type.special==='output'){
+    const note=document.createElement('div'); note.className='node-note'; note.textContent='Wires its input straight to the Viewer panel and Export.';
+    body.appendChild(note);
+  }
+
+  type.params.forEach(pd=>body.appendChild(buildControl(node,pd)));
+  el.appendChild(body);
+
+  // sockets
+  type.inputs.forEach((name,idx)=>{
+    const s=document.createElement('div'); s.className='socket socket-in'; s.dataset.idx=idx; s.dataset.node=node.id; s.dataset.dir='in';
+    const has = links.some(l=>l.to===node.id && l.toSock===idx);
+    if(has) s.classList.add('filled');
+    positionSocketVert(s, idx, type.inputs.length, header, body);
+    s.addEventListener('mousedown', e=>{ e.stopPropagation(); e.preventDefault(); selectNode(node.id); startWireDrag(s); });
+    el.appendChild(s);
+    if(type.inputs.length>1){
+      const lab=document.createElement('div'); lab.className='socket-label in'; lab.textContent=name;
+      lab.style.top=s.style.top; el.appendChild(lab);
+    }
+  });
+  type.outputs.forEach((name,idx)=>{
+    const s=document.createElement('div'); s.className='socket socket-out'; s.dataset.idx=idx; s.dataset.node=node.id; s.dataset.dir='out';
+    const has = links.some(l=>l.from===node.id);
+    if(has) s.classList.add('filled');
+    positionSocketVert(s, idx, type.outputs.length, header, body);
+    s.addEventListener('mousedown', e=>{ e.stopPropagation(); e.preventDefault(); selectNode(node.id); startWireDrag(s); });
+    el.appendChild(s);
+  });
+
+  header.addEventListener('mousedown', (e)=>startNodeDrag(e,node));
+  el.addEventListener('mousedown', (e)=>{ e.stopPropagation(); if(e.shiftKey) selectNode(node.id, true); else if(!selectedNodeIds.has(node.id)) selectNode(node.id, false); });
+
+  requestAnimationFrame(drawWires);
+  return el;
+}
+function positionSocketVert(sockEl, idx, count, header, body){
+  const headerH=36;
+  const top = headerH + 14 + idx*20;
+  sockEl.style.top = top+'px';
+}
+
+function selectNode(id, additive){
+  if(additive){
+    if(selectedNodeIds.has(id)) selectedNodeIds.delete(id); else selectedNodeIds.add(id);
+  } else {
+    selectedNodeIds = new Set([id]);
+  }
+  selectedLinkId=null;
+  document.querySelectorAll('.node').forEach(n=>n.classList.toggle('selected', selectedNodeIds.has(n.id)));
+  drawWires();
+}
+function clearSelection(){
+  selectedNodeIds=new Set();
+  document.querySelectorAll('.node').forEach(n=>n.classList.remove('selected'));
+}
+function toggleMuteNodes(ids){
+  ids.forEach(id=>{
+    const n=nodes[id]; if(!n) return;
+    const type=NODE_TYPES[n.type];
+    if(!type.inputs.length || !type.outputs.length) return; // only pass-through-capable nodes can be muted
+    n.muted=!n.muted;
+    markDirtyForward(id);
+    renderNode(n);
+  });
+  scheduleEval(); pushHistory();
+}
+function duplicateSelected(){
+  if(!selectedNodeIds.size) return;
+  const idMap={}; const newIds=[];
+  selectedNodeIds.forEach(id=>{
+    const src=nodes[id]; if(!src) return;
+    const copy=addNode(src.type, src.x+28, src.y+28, false);
+    copy.params=JSON.parse(JSON.stringify(src.params));
+    copy.title=src.title; copy.muted=src.muted;
+    if(src.type==='image' && src._src){ copy._src=src._src; copy._thumbUrl=src._thumbUrl; imageAssets[copy.id]={src:src._src, thumbUrl:src._thumbUrl}; }
+    idMap[id]=copy.id; newIds.push(copy.id);
+  });
+  links.slice().forEach(l=>{
+    if(idMap[l.from] && idMap[l.to]) addLink(idMap[l.from], l.fromSock, idMap[l.to], l.toSock, false);
+  });
+  newIds.forEach(id=>renderNode(nodes[id]));
+  selectedNodeIds=new Set(newIds);
+  document.querySelectorAll('.node').forEach(n=>n.classList.toggle('selected', selectedNodeIds.has(n.id)));
+  drawWires(); pushHistory(); scheduleEval();
+  showToast('Duplicated '+newIds.length+' node'+(newIds.length===1?'':'s'));
+}
+
+/* ============================================================
+   PREVIEW
+   ============================================================ */
+const previewStage=document.getElementById('previewStage');
+const viewerSub=document.getElementById('viewerSub');
+let previewCanvasEl=null;
+function updatePreview(canvas, isOriginal){
+  if(!outputNodeId && !isOriginal){ viewerSub.textContent='no Output node in graph'; previewStage.innerHTML='<div class="preview-empty">Add an <b>Output</b> node and wire something into it.</div>'; return; }
+  if(!canvas){
+    const hasLink = outputNodeId && links.some(l=>l.to===outputNodeId);
+    viewerSub.textContent = hasLink ? 'Output input is empty' : 'nothing wired into Output';
+    previewStage.innerHTML = hasLink
+      ? '<div class="preview-empty">Load a photo into the Image node upstream to see it here.</div>'
+      : '<div class="preview-empty">Connect a node into the Output node\'s input.</div>';
+    return;
+  }
+  viewerSub.textContent = (isOriginal?'original — ':'') + canvas.width+' × '+canvas.height;
+  if(!previewCanvasEl || !previewStage.contains(previewCanvasEl)){
+    previewStage.innerHTML=''; previewCanvasEl=document.createElement('canvas'); previewStage.appendChild(previewCanvasEl);
+  }
+  previewCanvasEl.width=canvas.width; previewCanvasEl.height=canvas.height;
+  previewCanvasEl.getContext('2d').drawImage(canvas,0,0);
+}
+
+/* ============================================================
+   FILE LOADING
+   ============================================================ */
+const MAX_DIM=1400;
+let pendingImageNodeId=null;
+// Loaded photo canvases live here, keyed by node id, *outside* the JSON undo
+// history (canvases aren't serializable) — restoreSnapshot re-attaches from
+// this table so undo/redo never wipes out a loaded photo.
+let imageAssets = {};
+document.getElementById('fileInput').addEventListener('change', (e)=>{
+  const file=e.target.files[0]; if(!file || !pendingImageNodeId) return;
+  const node=nodes[pendingImageNodeId]; if(!node) return;
+  const url=URL.createObjectURL(file);
+  const img=new Image();
+  img.onload=()=>{
+    let w=img.naturalWidth, h=img.naturalHeight; const scale=Math.min(1, MAX_DIM/Math.max(w,h));
+    w=Math.round(w*scale); h=Math.round(h*scale);
+    const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+    node._src=c; node._thumbUrl=url; node._dirty=true;
+    imageAssets[node.id] = { src:c, thumbUrl:url };
+    projectSize={w,h};
+    markDirtyForward(node.id);
+    renderNode(node);
+    scheduleEval();
+    showToast('Photo loaded into '+node.title);
+  };
+  img.src=url;
+  e.target.value='';
+});
+
+/* ============================================================
+   PALETTE (left sidebar + floating add menu)
+   ============================================================ */
+const paletteList=document.getElementById('paletteList');
+function buildPalette(filter){
+  paletteList.innerHTML='';
+  const q=(filter||'').toLowerCase();
+  PALETTE_ORDER.forEach(catKey=>{
+    const items=Object.entries(NODE_TYPES).filter(([k,t])=>t.category===catKey && (!q || t.title.toLowerCase().includes(q)));
+    if(!items.length) return;
+    const cat=document.createElement('div'); cat.className='palette-cat';
+    const head=document.createElement('div'); head.className='palette-cat-head';
+    head.innerHTML=`<div class="palette-cat-dot" style="background:${CATS[catKey].color}"></div><span>${CATS[catKey].label}</span><span class="chev">▾</span>`;
+    head.addEventListener('click',()=>cat.classList.toggle('collapsed'));
+    cat.appendChild(head);
+    const list=document.createElement('div'); list.className='palette-items';
+    items.forEach(([key,t])=>{
+      const it=document.createElement('div'); it.className='palette-item'; it.textContent=t.title; it.draggable=true;
+      it.addEventListener('dragstart', e=>{ e.dataTransfer.setData('text/node-type', key); });
+      it.addEventListener('click', ()=>{ const c=graphWrapCenterGraphCoords(); addNode(key, c.x, c.y); });
+      list.appendChild(it);
+    });
+    cat.appendChild(list);
+    paletteList.appendChild(cat);
+  });
+  if(!paletteList.children.length){ paletteList.innerHTML='<div class="palette-empty">No nodes match “'+filter+'”</div>'; }
+}
+document.getElementById('paletteSearch').addEventListener('input', e=>buildPalette(e.target.value));
+buildPalette('');
+
+graphWrap.addEventListener('dragover', e=>e.preventDefault());
+graphWrap.addEventListener('drop', e=>{
+  e.preventDefault(); const key=e.dataTransfer.getData('text/node-type'); if(!key) return;
+  const rect=graphWrap.getBoundingClientRect();
+  const gx=(e.clientX-rect.left-viewX)/viewScale, gy=(e.clientY-rect.top-viewY)/viewScale;
+  addNode(key, gx-NODE_WIDTH/2, gy-20);
+});
+
+function graphWrapCenterGraphCoords(){
+  const rect=graphWrap.getBoundingClientRect();
+  return { x:(rect.width/2 - viewX)/viewScale - NODE_WIDTH/2, y:(rect.height/2 - viewY)/viewScale - 20 };
+}
+
+/* floating add-node menu */
+let addMenuEl=null;
+function openAddMenu(clientX, clientY, graphX, graphY){
+  closeAddMenu();
+  addMenuEl=document.createElement('div'); addMenuEl.className='add-menu';
+  let left=clientX, top=clientY;
+  addMenuEl.style.left=Math.min(left, window.innerWidth-250)+'px';
+  addMenuEl.style.top=Math.min(top, window.innerHeight-360)+'px';
+  addMenuEl.innerHTML = `<div class="add-menu-search"><input type="text" placeholder="Search…" autofocus></div><div class="add-menu-list"></div>`;
+  document.body.appendChild(addMenuEl);
+  const listEl=addMenuEl.querySelector('.add-menu-list');
+  const searchEl=addMenuEl.querySelector('input');
+  function refresh(q){
+    listEl.innerHTML='';
+    PALETTE_ORDER.forEach(catKey=>{
+      const items=Object.entries(NODE_TYPES).filter(([k,t])=>t.category===catKey && (!q || t.title.toLowerCase().includes(q.toLowerCase())));
+      if(!items.length) return;
+      const head=document.createElement('div'); head.className='palette-cat-head';
+      head.innerHTML=`<div class="palette-cat-dot" style="background:${CATS[catKey].color}"></div><span>${CATS[catKey].label}</span>`;
+      listEl.appendChild(head);
+      items.forEach(([key,t])=>{
+        const it=document.createElement('div'); it.className='palette-item'; it.textContent=t.title;
+        it.addEventListener('click', ()=>{ addNode(key, graphX-NODE_WIDTH/2, graphY-20); closeAddMenu(); });
+        listEl.appendChild(it);
+      });
+    });
+  }
+  refresh(''); searchEl.addEventListener('input', ()=>refresh(searchEl.value));
+  searchEl.focus();
+  setTimeout(()=>document.addEventListener('mousedown', onDocClickCloseMenu),0);
+}
+function onDocClickCloseMenu(e){ if(addMenuEl && !addMenuEl.contains(e.target)) closeAddMenu(); }
+function closeAddMenu(){ if(addMenuEl){ addMenuEl.remove(); addMenuEl=null; document.removeEventListener('mousedown', onDocClickCloseMenu); } }
+
+document.getElementById('addBtn').addEventListener('click', (e)=>{
+  const c=graphWrapCenterGraphCoords(); openAddMenu(e.clientX, e.clientY, c.x+NODE_WIDTH/2, c.y+20);
+});
+graphWrap.addEventListener('contextmenu', (e)=>{
+  e.preventDefault(); const rect=graphWrap.getBoundingClientRect();
+  const gx=(e.clientX-rect.left-viewX)/viewScale, gy=(e.clientY-rect.top-viewY)/viewScale;
+  openAddMenu(e.clientX, e.clientY, gx, gy);
+});
+
+/* ============================================================
+   INTERACTION: pan / zoom / drag nodes / drag wires
+   ============================================================ */
+let isPanning=false, panStart=null;
+let isDraggingNode=false, dragNode=null, dragOffset=null;
+let isBoxSelecting=false, boxSelectStart=null, boxSelectEl=null;
+let isDraggingWire=false, wireStart=null, wireDragEl=null;
+let wireSnapTarget=null;   // socket el the dragged wire is currently magnet-snapped to
+let hoverWireLink=null;    // link currently under a dragged node, eligible for insertion
+let wireWasDetached=false; // true if this wire-drag started by unplugging an existing connection
+const SNAP_PX=26;          // screen-pixel radius for wire-to-socket snapping
+const WIRE_INSERT_PX=46;   // graph-unit radius for node-over-wire detection
+const INSERT_MARGIN=60;    // graph-unit breathing room kept on each side of an inserted node
+
+graphWrap.addEventListener('mousedown', (e)=>{
+  if(e.target===graphWrap || e.target===graphLayer){
+    if(e.shiftKey){
+      isBoxSelecting=true;
+      const rect=graphWrap.getBoundingClientRect();
+      boxSelectStart={x:e.clientX-rect.left, y:e.clientY-rect.top};
+      boxSelectEl=document.createElement('div'); boxSelectEl.className='box-select'; graphWrap.appendChild(boxSelectEl);
+      updateBoxSelect(e);
+    } else {
+      isPanning=true; panStart={x:e.clientX-viewX, y:e.clientY-viewY};
+      graphWrap.classList.add('panning');
+      selectedLinkId=null; clearSelection();
+      drawWires();
+    }
+  }
+});
+function updateBoxSelect(e){
+  const rect=graphWrap.getBoundingClientRect();
+  const cx=e.clientX-rect.left, cy=e.clientY-rect.top;
+  const x1=Math.min(boxSelectStart.x,cx), x2=Math.max(boxSelectStart.x,cx);
+  const y1=Math.min(boxSelectStart.y,cy), y2=Math.max(boxSelectStart.y,cy);
+  boxSelectEl.style.left=x1+'px'; boxSelectEl.style.top=y1+'px'; boxSelectEl.style.width=(x2-x1)+'px'; boxSelectEl.style.height=(y2-y1)+'px';
+  const newSel=new Set();
+  Object.values(nodes).forEach(n=>{
+    const el=document.getElementById(n.id); if(!el) return;
+    const r=el.getBoundingClientRect();
+    const nx1=r.left-rect.left, nx2=r.right-rect.left, ny1=r.top-rect.top, ny2=r.bottom-rect.top;
+    if(nx1<x2 && nx2>x1 && ny1<y2 && ny2>y1) newSel.add(n.id);
+  });
+  selectedNodeIds=newSel;
+  document.querySelectorAll('.node').forEach(n=>n.classList.toggle('selected', selectedNodeIds.has(n.id)));
+}
+window.addEventListener('mousemove', (e)=>{
+  if(isPanning){ viewX=e.clientX-panStart.x; viewY=e.clientY-panStart.y; applyView(); }
+  if(isBoxSelecting){ updateBoxSelect(e); }
+  if(isDraggingNode && dragNode){
+    const rect=graphWrap.getBoundingClientRect();
+    const newX=(e.clientX-rect.left-viewX)/viewScale - dragOffset.x;
+    const newY=(e.clientY-rect.top-viewY)/viewScale - dragOffset.y;
+    const dx=newX-dragNode.x, dy=newY-dragNode.y;
+    // move every selected node together, not just the one grabbed — mirrors
+    // Blender's group-drag behavior when multiple nodes are selected.
+    selectedNodeIds.forEach(id=>{
+      const n=nodes[id]; if(!n) return;
+      n.x+=dx; n.y+=dy;
+      const el=document.getElementById(id); if(el){ el.style.left=n.x+'px'; el.style.top=n.y+'px'; }
+    });
+    drawWires();
+    if(selectedNodeIds.size===1) setWireInsertHighlight(findNearbyLink(dragNode), dragNode);
+  }
+  if(isDraggingWire){ updateWireDrag(e); }
+});
+window.addEventListener('mouseup', (e)=>{
+  if(isPanning){ isPanning=false; graphWrap.classList.remove('panning'); }
+  if(isBoxSelecting){ isBoxSelecting=false; if(boxSelectEl){ boxSelectEl.remove(); boxSelectEl=null; } drawWires(); }
+  if(isDraggingNode){
+    if(hoverWireLink && dragNode && selectedNodeIds.size===1) insertNodeIntoLink(dragNode, hoverWireLink);
+    clearWireInsertHighlight(dragNode);
+    isDraggingNode=false; dragNode=null; pushHistory();
+  }
+  if(isDraggingWire){ finishWireDrag(e); }
+});
+// Safety net: if the window loses focus mid-drag (alt-tab, devtools, etc.) we'll
+// never get the matching mouseup, which would otherwise leave the app stuck
+// mid-drag with stray highlight styles.
+window.addEventListener('blur', ()=>{
+  if(isPanning){ isPanning=false; graphWrap.classList.remove('panning'); }
+  if(isBoxSelecting){ isBoxSelecting=false; if(boxSelectEl){ boxSelectEl.remove(); boxSelectEl=null; } }
+  if(isDraggingNode){ clearWireInsertHighlight(dragNode); isDraggingNode=false; dragNode=null; }
+  if(isDraggingWire){ clearSnapHighlight(); if(wireDragEl){ wireDragEl.remove(); wireDragEl=null; } isDraggingWire=false; wireStart=null; wireWasDetached=false; }
+});
+graphWrap.addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  const rect=graphWrap.getBoundingClientRect();
+  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+  const before={ x:(mx-viewX)/viewScale, y:(my-viewY)/viewScale };
+  // Scale the zoom step to how far the wheel actually moved, instead of a flat
+  // 10% per event. Trackpads fire many small events per gesture, so a flat
+  // step compounded into very fast, jumpy zooming; this makes it proportional
+  // and smooth while still letting a fast flick zoom quickly.
+  const clampedDelta = Math.max(-50, Math.min(50, e.deltaY));
+  const factor = Math.exp(-clampedDelta * 0.003);
+  viewScale=Math.min(2.2, Math.max(0.25, viewScale*factor));
+  viewX = mx - before.x*viewScale; viewY = my - before.y*viewScale;
+  applyView();
+}, { passive:false });
+
+function startNodeDrag(e, node){
+  e.stopPropagation(); e.preventDefault();
+  if(e.shiftKey) selectNode(node.id, true);
+  else if(!selectedNodeIds.has(node.id)) selectNode(node.id, false);
+  // else: node is already part of a multi-selection — keep the whole selection so it drags as a group
+  const rect=graphWrap.getBoundingClientRect();
+  const gx=(e.clientX-rect.left-viewX)/viewScale, gy=(e.clientY-rect.top-viewY)/viewScale;
+  isDraggingNode=true; dragNode=node; dragOffset={x:gx-node.x, y:gy-node.y};
+}
+
+function startWireDrag(sockEl){
+  const nodeId=sockEl.dataset.node, dir=sockEl.dataset.dir, idx=parseInt(sockEl.dataset.idx,10);
+  wireWasDetached=false;
+  if(dir==='in'){
+    // if already connected, detach and drag from the source end instead
+    const existing=links.find(l=>l.to===nodeId && l.toSock===idx);
+    if(existing){
+      const fromId=existing.from, fromSockIdx=outSockIndex(existing.from, existing.fromSock);
+      removeLink(existing.id);
+      wireWasDetached=true;
+      isDraggingWire=true; wireStart={ nodeId:fromId, dir:'out', idx:fromSockIdx };
+    } else {
+      isDraggingWire=true; wireStart={ nodeId, dir:'in', idx };
+    }
+  } else {
+    isDraggingWire=true; wireStart={ nodeId, dir:'out', idx };
+  }
+  wireDragEl=document.createElementNS('http://www.w3.org/2000/svg','path');
+  wireDragEl.setAttribute('class','wire-drag');
+  wireSvg.appendChild(wireDragEl);
+}
+// Find the nearest compatible socket to the cursor (screen space), for magnetic
+// snapping while dragging a wire. Only sockets facing the opposite direction of
+// the drag start, and not on the originating node, are eligible.
+function findSnapSocket(e){
+  if(!wireStart) return null;
+  const wantDir = wireStart.dir==='out' ? 'in' : 'out';
+  let best=null, bestDist=Infinity;
+  document.querySelectorAll('.socket-'+wantDir).forEach(s=>{
+    if(s.dataset.node===wireStart.nodeId) return;
+    const r=s.getBoundingClientRect();
+    const cx=r.left+r.width/2, cy=r.top+r.height/2;
+    const dist=Math.hypot(e.clientX-cx, e.clientY-cy);
+    if(dist<bestDist){ bestDist=dist; best={ el:s, cx, cy }; }
+  });
+  return (best && bestDist<=SNAP_PX) ? best : null;
+}
+function clearSnapHighlight(){
+  if(wireSnapTarget && wireSnapTarget.el) wireSnapTarget.el.classList.remove('snap-target');
+  wireSnapTarget=null;
+}
+function updateWireDrag(e){
+  if(!wireStart) return;
+  const rect=graphWrap.getBoundingClientRect();
+  const snap=findSnapSocket(e);
+  if(wireSnapTarget && wireSnapTarget.el!==(snap&&snap.el)) clearSnapHighlight();
+  let p2;
+  if(snap){
+    snap.el.classList.add('snap-target');
+    wireSnapTarget=snap;
+    p2={ x:(snap.cx-rect.left-viewX)/viewScale, y:(snap.cy-rect.top-viewY)/viewScale };
+  } else {
+    p2={ x:(e.clientX-rect.left-viewX)/viewScale, y:(e.clientY-rect.top-viewY)/viewScale };
+  }
+  const p1=localSocketXY(wireStart.nodeId, wireStart.dir, wireStart.idx);
+  wireDragEl.setAttribute('d', wireStart.dir==='out'? wirePath(p1,p2) : wirePath(p2,p1));
+}
+function finishWireDrag(e){
+  // Prefer the magnet-snapped socket (forgiving target); fall back to whatever's
+  // literally under the cursor.
+  const target = (wireSnapTarget && wireSnapTarget.el) || document.elementFromPoint(e.clientX, e.clientY);
+  if(wireDragEl) wireDragEl.remove();
+  let reconnected=false;
+  if(target && target.classList && target.classList.contains('socket') && wireStart){
+    const nodeId=target.dataset.node, dir=target.dataset.dir, idx=parseInt(target.dataset.idx,10);
+    if(dir!==wireStart.dir && nodeId!==wireStart.nodeId){
+      let fromId, fromSockName, toId, toSockIdx;
+      if(wireStart.dir==='out'){ fromId=wireStart.nodeId; fromSockName=NODE_TYPES[nodes[fromId].type].outputs[wireStart.idx]; toId=nodeId; toSockIdx=idx; }
+      else { fromId=nodeId; fromSockName=NODE_TYPES[nodes[fromId].type].outputs[idx]; toId=wireStart.nodeId; toSockIdx=wireStart.idx; }
+      addLink(fromId, fromSockName, toId, toSockIdx);
+      renderNode(nodes[fromId]); renderNode(nodes[toId]);
+      reconnected=true;
+    }
+  }
+  // If we unplugged an existing wire and it wasn't reconnected anywhere, that
+  // disconnection needs its own history entry or an immediate Ctrl+Z won't undo it.
+  if(!reconnected && wireWasDetached) pushHistory();
+  wireWasDetached=false;
+  clearSnapHighlight();
+  isDraggingWire=false; wireStart=null; wireDragEl=null;
+  drawWires();
+}
+
+document.addEventListener('keydown',(e)=>{
+  if(document.activeElement.tagName==='INPUT') return; // never intercept while typing
+  if(e.key==='Delete'||e.key==='Backspace'){
+    if(selectedNodeIds.size){ Array.from(selectedNodeIds).forEach(id=>removeNode(id)); selectedNodeIds=new Set(); drawWires(); pushHistory(); }
+    else if(selectedLinkId){ removeLink(selectedLinkId); selectedLinkId=null; pushHistory(); }
+  }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){
+    e.preventDefault(); if(e.shiftKey) redo(); else undo();
+  }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='d'){
+    e.preventDefault(); duplicateSelected();
+  }
+  if(e.key.toLowerCase()==='m' && !e.ctrlKey && !e.metaKey && selectedNodeIds.size){
+    toggleMuteNodes(Array.from(selectedNodeIds));
+  }
+  if(e.key==='\\'){ document.getElementById('compareBtn').click(); }
+});
+
+/* ============================================================
+   HISTORY (undo/redo)
+   ============================================================ */
+let historyStack=[]; let historyIdx=-1; let restoring=false;
+function serializeGraph(){
+  const nodesOut={};
+  Object.values(nodes).forEach(n=>{ nodesOut[n.id]={ id:n.id, type:n.type, x:n.x, y:n.y, title:n.title, muted:!!n.muted, params:JSON.parse(JSON.stringify(n.params)) }; });
+  return JSON.stringify({ nodes:nodesOut, links, outputNodeId, nextId });
+}
+function pushHistory(){
+  if(restoring) return;
+  const snap=serializeGraph();
+  historyStack=historyStack.slice(0,historyIdx+1);
+  historyStack.push(snap); historyIdx=historyStack.length-1;
+  if(historyStack.length>60){ historyStack.shift(); historyIdx--; }
+  if(typeof scheduleAutosave==='function') scheduleAutosave();
+}
+function restoreSnapshot(snap){
+  restoring=true;
+  const data=JSON.parse(snap);
+  graphLayer.innerHTML=''; wireSvg.innerHTML='';
+  nodes={}; links=data.links; outputNodeId=data.outputNodeId; nextId=data.nextId;
+  Object.values(data.nodes).forEach(nd=>{
+    const asset=imageAssets[nd.id];
+    const node={ id:nd.id, type:nd.type, x:nd.x, y:nd.y, params:nd.params, title:nd.title||NODE_TYPES[nd.type].title, muted:!!nd.muted,
+      _src: asset? asset.src : null, _cache:null, _dirty:true, _thumbUrl: asset? asset.thumbUrl : null };
+    nodes[nd.id]=node;
+  });
+  selectedNodeIds=new Set(Array.from(selectedNodeIds).filter(id=>nodes[id]));
+  Object.values(nodes).forEach(n=>renderNode(n));
+  applyView(); drawWires(); scheduleEval();
+  restoring=false;
+}
+function undo(){ if(historyIdx<=0) return; historyIdx--; restoreSnapshot(historyStack[historyIdx]); }
+function redo(){ if(historyIdx>=historyStack.length-1) return; historyIdx++; restoreSnapshot(historyStack[historyIdx]); }
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('redoBtn').addEventListener('click', redo);
+document.getElementById('zoomHud').addEventListener('click', ()=>{
+  const rect=graphWrap.getBoundingClientRect(); const cx=rect.width/2, cy=rect.height/2;
+  const before={ x:(cx-viewX)/viewScale, y:(cy-viewY)/viewScale };
+  viewScale=1; viewX=cx-before.x*viewScale; viewY=cy-before.y*viewScale; applyView();
+});
+
+/* ============================================================
+   TOP BAR ACTIONS
+   ============================================================ */
+document.getElementById('frameBtn').addEventListener('click', ()=>{
+  const list=Object.values(nodes); if(!list.length) return;
+  const minX=Math.min(...list.map(n=>n.x)), minY=Math.min(...list.map(n=>n.y));
+  const maxX=Math.max(...list.map(n=>n.x+NODE_WIDTH)), maxY=Math.max(...list.map(n=>n.y+260));
+  const rect=graphWrap.getBoundingClientRect();
+  const contentW=maxX-minX, contentH=maxY-minY;
+  viewScale=Math.min(1.4, Math.max(0.3, Math.min(rect.width/(contentW+120), rect.height/(contentH+120))));
+  viewX = -minX*viewScale + 60; viewY = -minY*viewScale + 60;
+  applyView();
+});
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  if(!Object.keys(nodes).length) return;
+  if(!confirm('Clear the whole graph? This can\'t be undone.')) return;
+  graphLayer.innerHTML=''; wireSvg.innerHTML=''; nodes={}; links=[]; outputNodeId=null; selectedNodeIds=new Set(); selectedLinkId=null;
+  imageAssets={}; historyStack=[]; historyIdx=-1; pushHistory(); applyView(); scheduleEval();
+});
+function doExport(){
+  if(!previewCanvasEl){ showToast('Nothing to export yet'); return; }
+  const a=document.createElement('a'); a.download='lumin-export.png'; a.href=previewCanvasEl.toDataURL('image/png'); a.click();
+}
+document.getElementById('exportBtn').addEventListener('click', doExport);
+document.getElementById('exportBtn2').addEventListener('click', doExport);
+
+function showToast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(showToast._tm); showToast._tm=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+/* ============================================================
+   PROJECT SAVE / LOAD (full .json file, embeds loaded photos)
+   ============================================================ */
+function serializeProjectFull(){
+  const nodesOut={};
+  Object.values(nodes).forEach(n=>{
+    nodesOut[n.id]={
+      id:n.id, type:n.type, x:n.x, y:n.y, title:n.title, muted:!!n.muted,
+      params:JSON.parse(JSON.stringify(n.params)),
+      imageData: (n.type==='image' && n._src) ? n._src.toDataURL('image/png') : null
+    };
+  });
+  return JSON.stringify({ version:1, nodes:nodesOut, links, outputNodeId, nextId, projectSize });
+}
+function doSaveProject(){
+  if(!Object.keys(nodes).length){ showToast('Nothing to save yet'); return; }
+  const blob=new Blob([serializeProjectFull()],{type:'application/json'});
+  const a=document.createElement('a'); a.download='lumin-project.json'; a.href=URL.createObjectURL(blob); a.click();
+  showToast('Project saved');
+}
+function loadProjectData(json){
+  let data; try{ data=JSON.parse(json); }catch(e){ showToast('That file isn\'t a valid Lumin project'); return; }
+  graphLayer.innerHTML=''; wireSvg.innerHTML=''; nodes={}; links=data.links||[];
+  outputNodeId=data.outputNodeId||null; nextId=data.nextId||1; projectSize=data.projectSize||projectSize;
+  imageAssets={}; selectedNodeIds=new Set(); selectedLinkId=null;
+  const entries=Object.values(data.nodes||{});
+  let pending=0;
+  function finishIfDone(){ if(pending===0){ applyView(); drawWires(); scheduleEval(); historyStack=[]; historyIdx=-1; pushHistory(); } }
+  entries.forEach(nd=>{
+    if(!NODE_TYPES[nd.type]) return;
+    const node={ id:nd.id, type:nd.type, x:nd.x, y:nd.y, title:nd.title||NODE_TYPES[nd.type].title, muted:!!nd.muted,
+      params:nd.params, _src:null, _cache:null, _dirty:true, _thumbUrl:null };
+    nodes[nd.id]=node;
+    if(nd.id.match(/^n(\d+)$/)) nextId=Math.max(nextId, parseInt(RegExp.$1,10)+1);
+    if(nd.imageData){
+      pending++;
+      const img=new Image();
+      img.onload=()=>{
+        const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight; c.getContext('2d').drawImage(img,0,0);
+        node._src=c; node._thumbUrl=nd.imageData; imageAssets[node.id]={src:c, thumbUrl:nd.imageData};
+        renderNode(node); pending--; finishIfDone();
+      };
+      img.onerror=()=>{ pending--; finishIfDone(); };
+      img.src=nd.imageData;
+    }
+  });
+  Object.values(nodes).forEach(n=>renderNode(n));
+  finishIfDone();
+}
+document.getElementById('saveProjectBtn').addEventListener('click', doSaveProject);
+document.getElementById('loadProjectBtn').addEventListener('click', ()=>{
+  if(Object.keys(nodes).length && !confirm('Load a project? This replaces your current graph (autosave of the current graph is kept until you load).')) return;
+  document.getElementById('projectFileInput').click();
+});
+document.getElementById('projectFileInput').addEventListener('change', (e)=>{
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=()=>{ loadProjectData(reader.result); showToast('Project loaded'); };
+  reader.readAsText(file);
+  e.target.value='';
+});
+
+/* ---- autosave to localStorage, so a refresh or closed tab never loses work ---- */
+let autosaveTimer=null;
+function scheduleAutosave(){
+  clearTimeout(autosaveTimer);
+  autosaveTimer=setTimeout(()=>{
+    try{ localStorage.setItem('lumin-autosave-v1', serializeProjectFull()); }
+    catch(err){ /* storage full/blocked — silently skip, nothing else we can do */ }
+  }, 700);
+}
+
+/* ============================================================
+   COMPARE — toggle the viewer between the graded output and the
+   original loaded photo (Lightroom-style before/after)
+   ============================================================ */
+let compareMode=false;
+function findFirstImageSource(){
+  const n=Object.values(nodes).find(n=>n.type==='image' && n._src);
+  return n ? n._src : null;
+}
+document.getElementById('compareBtn').addEventListener('click', ()=>{
+  compareMode=!compareMode;
+  document.getElementById('compareBtn').classList.toggle('btn-accent', compareMode);
+  document.getElementById('compareBtn').textContent = compareMode ? '⇄ Showing original' : '⇄ Compare original';
+  runEvaluation();
+});
+
+/* ============================================================
+   BOOTSTRAP — restore an autosaved session, or start with a
+   friendly Image -> Output chain
+   ============================================================ */
+function bootstrap(){
+  let restored=false;
+  try{
+    const saved=localStorage.getItem('lumin-autosave-v1');
+    if(saved && JSON.parse(saved).nodes && Object.keys(JSON.parse(saved).nodes).length){
+      loadProjectData(saved);
+      restored=true;
+      showToast('Restored your last session');
+    }
+  }catch(err){ /* localStorage unavailable or corrupt autosave — fall through to default */ }
+  if(!restored){
+    const img=addNode('image', 80, 140, false);
+    const out=addNode('output', 560, 150, false);
+    addLink(img.id, 'Image', out.id, 0, false);
+    applyView();
+    pushHistory();
+  }
+}
+bootstrap();
+window.addEventListener('resize', drawWires);
+
+})();
+</script>
+</body>
+</html>
