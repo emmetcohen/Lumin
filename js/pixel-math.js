@@ -70,6 +70,30 @@ function hexToRgb(hex){
   const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||'#000000');
   return m? [parseInt(m[1],16),parseInt(m[2],16),parseInt(m[3],16)] : [0,0,0];
 }
+function rgbToHex(rgb){
+  const h=n=>clampByte(Math.round(n)).toString(16).padStart(2,'0');
+  return '#'+h(rgb[0])+h(rgb[1])+h(rgb[2]);
+}
+// Blender-style color ramp: given sorted {pos,color} stops and a 0..1 factor,
+// find the bracketing pair and interpolate. Shared by the live ramp-editor
+// widget (hex in/out) and the per-pixel image pass (numeric RGB, precomputed
+// stops for speed) below.
+function sampleRampHex(stopsIn, t, interpolation){
+  const raw=(stopsIn&&stopsIn.length?stopsIn:[{pos:0,color:'#000000'},{pos:1,color:'#ffffff'}]);
+  const stops=raw.map(s=>({pos:s.pos, rgb:hexToRgb(s.color)})).sort((a,b)=>a.pos-b.pos);
+  const n=stops.length;
+  if(n===1||t<=stops[0].pos) return rgbToHex(stops[0].rgb);
+  if(t>=stops[n-1].pos) return rgbToHex(stops[n-1].rgb);
+  for(let k=0;k<n-1;k++){
+    const a=stops[k], b=stops[k+1];
+    if(t>=a.pos && t<=b.pos){
+      const span=b.pos-a.pos; let f=span<=0?0:(t-a.pos)/span;
+      if(interpolation==='Constant') f=0; else if(interpolation==='Ease') f=f*f*(3-2*f);
+      return rgbToHex([a.rgb[0]+(b.rgb[0]-a.rgb[0])*f, a.rgb[1]+(b.rgb[1]-a.rgb[1])*f, a.rgb[2]+(b.rgb[2]-a.rgb[2])*f]);
+    }
+  }
+  return rgbToHex(stops[n-1].rgb);
+}
 
 /* ---- individual effect functions (d = Uint8ClampedArray RGBA) ---- */
 function fxExposure(d,amount){
@@ -136,6 +160,30 @@ function fxInvert(d,amount){
 function fxBlackWhite(d,amount){
   if(!amount) return; const a=amount/100;
   for(let i=0;i<d.length;i+=4){ const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; d[i]=clampByte(d[i]+(lum-d[i])*a); d[i+1]=clampByte(d[i+1]+(lum-d[i+1])*a); d[i+2]=clampByte(d[i+2]+(lum-d[i+2])*a); }
+}
+function fxColorRamp(d,stopsIn,interpolation,amount){
+  const amt=(amount==null?100:amount)/100; if(!amt) return;
+  const raw=(stopsIn&&stopsIn.length?stopsIn:[{pos:0,color:'#000000'},{pos:1,color:'#ffffff'}]);
+  const stops=raw.map(s=>({pos:s.pos, rgb:hexToRgb(s.color)})).sort((a,b)=>a.pos-b.pos);
+  const n=stops.length;
+  for(let i=0;i<d.length;i+=4){
+    const lum=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])/255;
+    let c=stops[n-1].rgb;
+    if(n===1||lum<=stops[0].pos) c=stops[0].rgb;
+    else if(lum>=stops[n-1].pos) c=stops[n-1].rgb;
+    else {
+      for(let k=0;k<n-1;k++){
+        const a=stops[k], b=stops[k+1];
+        if(lum>=a.pos && lum<=b.pos){
+          const span=b.pos-a.pos; let f=span<=0?0:(lum-a.pos)/span;
+          if(interpolation==='Constant') f=0; else if(interpolation==='Ease') f=f*f*(3-2*f);
+          c=[a.rgb[0]+(b.rgb[0]-a.rgb[0])*f, a.rgb[1]+(b.rgb[1]-a.rgb[1])*f, a.rgb[2]+(b.rgb[2]-a.rgb[2])*f];
+          break;
+        }
+      }
+    }
+    d[i]=clampByte(d[i]+(c[0]-d[i])*amt); d[i+1]=clampByte(d[i+1]+(c[1]-d[i+1])*amt); d[i+2]=clampByte(d[i+2]+(c[2]-d[i+2])*amt);
+  }
 }
 function fxDuotone(d,p){
   const amt=(p.amount||0)/100; if(!amt) return;
@@ -291,5 +339,54 @@ function fxNoiseReduction(d,width,height,amount){
 function fxGaussianBlur(d,width,height,radius){
   if(!radius) return; let cur=d; for(let pass=0;pass<3;pass++){ cur=boxBlur(cur,width,height,Math.max(1,Math.round(radius/2))); }
   for(let i=0;i<d.length;i+=4){ d[i]=cur[i]; d[i+1]=cur[i+1]; d[i+2]=cur[i+2]; }
+}
+// Radial channel shift (red pulled outward, blue pulled inward from center) —
+// unlike RGB Split's flat horizontal offset, this grows with distance from
+// center like real lens chromatic aberration.
+function fxChromaticAberration(d,width,height,amount){
+  if(!amount) return; const src=new Uint8ClampedArray(d);
+  const cx=width/2, cy=height/2; const maxR=Math.hypot(cx,cy)||1; const strength=(amount/100)*0.03;
+  for(let y=0;y<height;y++){
+    for(let x=0;x<width;x++){
+      const dx=x-cx, dy=y-cy; const dist=Math.hypot(dx,dy)||1; const shift=(dist/maxR)*strength*maxR;
+      const ux=dx/dist, uy=dy/dist;
+      const rx=Math.min(width-1,Math.max(0,Math.round(x+ux*shift))), ry=Math.min(height-1,Math.max(0,Math.round(y+uy*shift)));
+      const bx=Math.min(width-1,Math.max(0,Math.round(x-ux*shift))), by=Math.min(height-1,Math.max(0,Math.round(y-uy*shift)));
+      const idx=(y*width+x)*4;
+      d[idx]=src[(ry*width+rx)*4]; d[idx+2]=src[(by*width+bx)*4+2];
+    }
+  }
+}
+function fxEmboss(d,width,height,amount){
+  if(!amount) return; const amt=amount/100; const src=new Uint8ClampedArray(d);
+  const gray=new Float32Array(width*height);
+  for(let i=0,p=0;i<src.length;i+=4,p++) gray[p]=0.299*src[i]+0.587*src[i+1]+0.114*src[i+2];
+  for(let y=0;y<height;y++){ const yp=Math.min(height-1,y+1);
+    for(let x=0;x<width;x++){ const xp=Math.min(width-1,x+1);
+      const g0=gray[y*width+x], g1=gray[y*width+xp], g2=gray[yp*width+x];
+      const v=clampByte(128+(g1-g0)+(g2-g0)); const idx=(y*width+x)*4;
+      d[idx]=clampByte(src[idx]+(v-src[idx])*amt); d[idx+1]=clampByte(src[idx+1]+(v-src[idx+1])*amt); d[idx+2]=clampByte(src[idx+2]+(v-src[idx+2])*amt);
+    }
+  }
+}
+function fxOldFilm(d,width,height,amount){
+  if(!amount) return; const amt=amount/100;
+  for(let i=0;i<d.length;i+=4){
+    const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+    const sr=clampByte(lum*1.07+18), sg=clampByte(lum*0.86+10), sb=clampByte(lum*0.62);
+    d[i]=clampByte(d[i]+(sr-d[i])*amt); d[i+1]=clampByte(d[i+1]+(sg-d[i+1])*amt); d[i+2]=clampByte(d[i+2]+(sb-d[i+2])*amt);
+  }
+  fxFilmGrain(d,width,height,amount*0.45);
+}
+function fxWaveWarp(d,width,height,amount,wavesIn){
+  if(!amount) return; const src=new Uint8ClampedArray(d);
+  const amp=(amount/100)*Math.min(width,height)*0.05; const freq=(Math.PI*2*(wavesIn||6))/height;
+  for(let y=0;y<height;y++){
+    const shift=Math.round(Math.sin(y*freq)*amp); const rowBase=y*width*4;
+    for(let x=0;x<width;x++){
+      const sx=Math.min(width-1,Math.max(0,x-shift)); const idx=rowBase+x*4, sIdx=rowBase+sx*4;
+      d[idx]=src[sIdx]; d[idx+1]=src[sIdx+1]; d[idx+2]=src[sIdx+2];
+    }
+  }
 }
 

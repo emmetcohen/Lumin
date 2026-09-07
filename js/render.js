@@ -161,6 +161,89 @@ function sizeSvg(){
   wireSvg.style.width=maxX+'px'; wireSvg.style.height=maxY+'px';
 }
 
+// A Blender-style color ramp: a gradient bar with draggable stop markers.
+// Click empty bar space to add a stop (seeded with the ramp's own color at
+// that point), drag a marker to reposition it, click a marker to select it
+// and edit its color below. Interpolation itself is a plain 'select' param
+// defined alongside 'stops', so it reuses the existing select control.
+function buildColorRamp(node, pd){
+  const wrap=document.createElement('div'); wrap.className='ramp-wrap';
+  const label=document.createElement('div'); label.className='row-label'; label.innerHTML=`<span>${pd.label}</span>`;
+  wrap.appendChild(label);
+
+  const bar=document.createElement('div'); bar.className='ramp-bar';
+  const track=document.createElement('div'); track.className='ramp-track';
+  bar.appendChild(track);
+  wrap.appendChild(bar);
+
+  const controls=document.createElement('div'); controls.className='ramp-controls';
+  const colorInp=document.createElement('input'); colorInp.type='color';
+  const delBtn=document.createElement('div'); delBtn.className='ramp-del'; delBtn.textContent='Remove stop';
+  controls.appendChild(colorInp); controls.appendChild(delBtn);
+  wrap.appendChild(controls);
+  const hint=document.createElement('div'); hint.className='ramp-hint'; hint.textContent='Click the bar to add a stop';
+  wrap.appendChild(hint);
+
+  const stops=()=>node.params[pd.key];
+  let selectedIdx=0;
+
+  function interpolation(){ return node.params.interpolation||'Linear'; }
+  function gradientCss(){
+    const s=stops().slice().sort((a,b)=>a.pos-b.pos);
+    if(interpolation()==='Constant'){
+      const parts=[];
+      s.forEach((st,i)=>{ const nextPos = i<s.length-1 ? s[i+1].pos : 1; parts.push(`${st.color} ${st.pos*100}%`, `${st.color} ${nextPos*100}%`); });
+      return `linear-gradient(to right, ${parts.join(',')})`;
+    }
+    return `linear-gradient(to right, ${s.map(st=>`${st.color} ${st.pos*100}%`).join(',')})`;
+  }
+
+  function refresh(){
+    bar.style.background=gradientCss();
+    track.innerHTML='';
+    stops().forEach((st,i)=>{
+      const m=document.createElement('div'); m.className='ramp-marker'+(i===selectedIdx?' selected':'');
+      m.style.left=(st.pos*100)+'%'; m.style.background=st.color;
+      m.addEventListener('mousedown',(e)=>{
+        e.stopPropagation(); e.preventDefault(); selectedIdx=i; refresh();
+        const rect=bar.getBoundingClientRect();
+        function onMove(ev){
+          const pos=Math.min(1,Math.max(0,(ev.clientX-rect.left)/rect.width));
+          stops()[i].pos=pos; markDirtyForward(node.id); scheduleEval(); refresh();
+        }
+        function onUp(){ document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); pushHistory(); }
+        document.addEventListener('mousemove',onMove); document.addEventListener('mouseup',onUp);
+      });
+      track.appendChild(m);
+    });
+    colorInp.value=stops()[selectedIdx].color;
+    delBtn.classList.toggle('disabled', stops().length<=2);
+  }
+
+  bar.addEventListener('mousedown',(e)=>{
+    if(e.target!==track) return;
+    e.stopPropagation();
+    const rect=bar.getBoundingClientRect();
+    const pos=Math.min(1,Math.max(0,(e.clientX-rect.left)/rect.width));
+    const color=sampleRampHex(stops(), pos, interpolation());
+    stops().push({pos,color});
+    selectedIdx=stops().length-1;
+    markDirtyForward(node.id); scheduleEval(); refresh(); pushHistory();
+  });
+  colorInp.addEventListener('mousedown', e=>e.stopPropagation());
+  colorInp.addEventListener('input', ()=>{ stops()[selectedIdx].color=colorInp.value; markDirtyForward(node.id); scheduleEval(); refresh(); });
+  colorInp.addEventListener('change', ()=>pushHistory());
+  delBtn.addEventListener('mousedown', e=>e.stopPropagation());
+  delBtn.addEventListener('click', ()=>{
+    if(stops().length<=2) return;
+    stops().splice(selectedIdx,1); selectedIdx=Math.max(0,selectedIdx-1);
+    markDirtyForward(node.id); scheduleEval(); refresh(); pushHistory();
+  });
+
+  refresh();
+  return wrap;
+}
+
 // A Blender-style number slider: the whole bar is the drag surface (drag L/R
 // to scrub the value, hold Shift for fine control), a plain click with no
 // drag switches to a text field for typing an exact value, and small arrows
@@ -244,12 +327,18 @@ function buildControl(node, pd){
   const val = node.params[pd.key];
   if(pd.type==='slider'){
     row.appendChild(buildBlenderSlider(node, pd));
+  } else if(pd.type==='ramp'){
+    return buildColorRamp(node, pd);
   } else if(pd.type==='select'){
     row.innerHTML = `<div class="row-label"><span>${pd.label}</span></div>`;
     const sel=document.createElement('select'); sel.className='n-select';
     pd.options.forEach(o=>{ const opt=document.createElement('option'); opt.value=o; opt.textContent=o; if(o===val) opt.selected=true; sel.appendChild(opt); });
     sel.addEventListener('mousedown',e=>e.stopPropagation());
-    sel.addEventListener('change', ()=>{ node.params[pd.key]=sel.value; markDirtyForward(node.id); scheduleEval(); pushHistory(); });
+    sel.addEventListener('change', ()=>{
+      node.params[pd.key]=sel.value; markDirtyForward(node.id); scheduleEval();
+      if(pd.refreshNode) renderNode(node); // e.g. ramp interpolation — its preview lives in a sibling row
+      pushHistory();
+    });
     row.appendChild(sel);
   } else if(pd.type==='color'){
     row.innerHTML = `<div class="row-label"><span>${pd.label}</span></div>`;

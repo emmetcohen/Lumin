@@ -97,6 +97,14 @@ const NODE_TYPES = {
     [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100}],
     (d,w,h,p)=>fxInvert(d,p.amount)) },
 
+  colorRamp: { category:'color', title:'Color Ramp', ...pixelType(
+    [
+      {key:'stops',label:'Stops',type:'ramp',default:[{pos:0,color:'#000000'},{pos:0.5,color:'#3f8cff'},{pos:1,color:'#ffffff'}]},
+      {key:'interpolation',label:'Interpolation',type:'select',options:['Linear','Ease','Constant'],default:'Linear',refreshNode:true},
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
+    ],
+    (d,w,h,p)=>fxColorRamp(d,p.stops,p.interpolation,p.amount)) },
+
   duotone: { category:'color', title:'Duotone', ...pixelType(
     [
       {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
@@ -167,6 +175,25 @@ const NODE_TYPES = {
     [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:70}],
     (d,w,h,p)=>fxThermal(d,p.amount)) },
 
+  chromaticAberration: { category:'distort', title:'Chromatic Aberration', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
+    (d,w,h,p)=>fxChromaticAberration(d,w,h,p.amount)) },
+
+  emboss: { category:'distort', title:'Emboss', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100}],
+    (d,w,h,p)=>fxEmboss(d,w,h,p.amount)) },
+
+  oldFilm: { category:'distort', title:'Old Film', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:60}],
+    (d,w,h,p)=>fxOldFilm(d,w,h,p.amount)) },
+
+  waveWarp: { category:'distort', title:'Wave Warp', ...pixelType(
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'waves',label:'Waves',type:'slider',min:1,max:20,step:1,default:6},
+    ],
+    (d,w,h,p)=>fxWaveWarp(d,w,h,p.amount,p.waves)) },
+
   // ---------------- FINISH ----------------
   vignette: {
     category:'finish', title:'Vignette', inputs:['Image'], outputs:['Image'],
@@ -209,6 +236,35 @@ const NODE_TYPES = {
       const src=ins[0]; if(!src) return null; const w=src.width,h=src.height;
       const out=document.createElement('canvas'); out.width=w; out.height=h; const octx=out.getContext('2d');
       octx.save(); octx.translate(p.horizontal?w:0, p.vertical?h:0); octx.scale(p.horizontal?-1:1, p.vertical?-1:1); octx.drawImage(src,0,0); octx.restore();
+      return out;
+    }
+  },
+  crop: {
+    category:'transform', title:'Crop', inputs:['Image'], outputs:['Image'],
+    params:[
+      {key:'left',label:'Left',type:'slider',min:0,max:49,step:1,default:0,unit:'%'},
+      {key:'top',label:'Top',type:'slider',min:0,max:49,step:1,default:0,unit:'%'},
+      {key:'right',label:'Right',type:'slider',min:0,max:49,step:1,default:0,unit:'%'},
+      {key:'bottom',label:'Bottom',type:'slider',min:0,max:49,step:1,default:0,unit:'%'},
+    ],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null; const w=src.width,h=src.height;
+      const l=Math.round(w*(p.left||0)/100), t=Math.round(h*(p.top||0)/100);
+      const r=Math.round(w*(p.right||0)/100), b=Math.round(h*(p.bottom||0)/100);
+      const cw=Math.max(1,w-l-r), ch=Math.max(1,h-t-b);
+      const out=document.createElement('canvas'); out.width=cw; out.height=ch;
+      out.getContext('2d').drawImage(src,l,t,cw,ch,0,0,cw,ch);
+      return out;
+    }
+  },
+  scale: {
+    category:'transform', title:'Scale', inputs:['Image'], outputs:['Image'],
+    params:[{key:'amount',label:'Amount',type:'slider',min:10,max:300,step:1,default:100,unit:'%'}],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null; const factor=(p.amount||100)/100;
+      const w=Math.max(1,Math.round(src.width*factor)), h=Math.max(1,Math.round(src.height*factor));
+      const out=document.createElement('canvas'); out.width=w; out.height=h;
+      out.getContext('2d').drawImage(src,0,0,w,h);
       return out;
     }
   },
@@ -287,7 +343,10 @@ const PALETTE_ORDER = ['input','color','detail','distort','finish','transform','
    NODE INSTANCE / GRAPH OPS
    ============================================================ */
 function makeParamDefaults(typeKey){
-  const def={}; NODE_TYPES[typeKey].params.forEach(pd=>{ def[pd.key]=pd.default; }); return def;
+  // deep-clone each default — several param types (e.g. the color ramp's stop
+  // list) default to an object/array, and sharing that reference across every
+  // instance of the node type would let editing one node's stops mutate them all
+  const def={}; NODE_TYPES[typeKey].params.forEach(pd=>{ def[pd.key]=JSON.parse(JSON.stringify(pd.default)); }); return def;
 }
 function addNode(typeKey, x, y, record){
   const type=NODE_TYPES[typeKey]; if(!type) return null;
