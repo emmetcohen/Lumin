@@ -530,6 +530,125 @@ function fxOldFilm(d,width,height,amount){
   }
   fxFilmGrain(d,width,height,amount*0.45);
 }
+function fxChannelMixer(d,m){
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i],g=d[i+1],b=d[i+2];
+    d[i]=clampByte((r*m.rr+g*m.rg+b*m.rb)/100);
+    d[i+1]=clampByte((r*m.gr+g*m.gg+b*m.gb)/100);
+    d[i+2]=clampByte((r*m.br+g*m.bg+b*m.bb)/100);
+  }
+}
+// Tints shadows and highlights with two different colors while leaving
+// midtones mostly alone — a classic photo-grading tool, subtler than Duotone
+// (which fully replaces color) since this only adds an offset around neutral gray.
+function fxSplitTone(d,p){
+  const amt=(p.amount||0)/100; if(!amt) return;
+  const sc=hexToRgb(p.shadowColor||'#2b2350'), hc=hexToRgb(p.highlightColor||'#ffce7a');
+  const bal=clamp01((p.balance==null?50:p.balance)/100);
+  for(let i=0;i<d.length;i+=4){
+    const lum=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])/255;
+    const shadowW = lum<bal ? (1-lum/Math.max(0.001,bal)) : 0;
+    const highW = lum>=bal ? (lum-bal)/Math.max(0.001,1-bal) : 0;
+    const tr=(sc[0]-128)*shadowW+(hc[0]-128)*highW, tg=(sc[1]-128)*shadowW+(hc[1]-128)*highW, tb=(sc[2]-128)*shadowW+(hc[2]-128)*highW;
+    d[i]=clampByte(d[i]+tr*amt*0.6); d[i+1]=clampByte(d[i+1]+tg*amt*0.6); d[i+2]=clampByte(d[i+2]+tb*amt*0.6);
+  }
+}
+function fxFade(d,amount){
+  if(!amount) return; const amt=amount/100; const lift=25*amt;
+  for(let i=0;i<d.length;i+=4){
+    d[i]=clampByte(d[i]*(1-amt*0.15)+lift+amt*6);
+    d[i+1]=clampByte(d[i+1]*(1-amt*0.15)+lift);
+    d[i+2]=clampByte(d[i+2]*(1-amt*0.15)+lift-amt*4);
+  }
+}
+function fxHighPass(d,width,height,radius){
+  if(!radius) return; const src=new Uint8ClampedArray(d);
+  const blurred=boxBlur(src,width,height,Math.max(1,Math.round(radius)));
+  for(let i=0;i<d.length;i+=4){
+    d[i]=clampByte(128+(src[i]-blurred[i])); d[i+1]=clampByte(128+(src[i+1]-blurred[i+1])); d[i+2]=clampByte(128+(src[i+2]-blurred[i+2]));
+  }
+}
+// Small-window median filter — edge-preserving denoise, unlike the existing
+// blur-based Noise Reduction. Kept to a small radius since the per-pixel sort
+// cost grows with window area.
+function fxMedianDenoise(d,width,height,radiusIn){
+  const radius=Math.round(radiusIn||0); if(!radius) return;
+  const src=new Uint8ClampedArray(d);
+  const rArr=[],gArr=[],bArr=[];
+  for(let y=0;y<height;y++){
+    for(let x=0;x<width;x++){
+      rArr.length=0; gArr.length=0; bArr.length=0;
+      for(let dy=-radius;dy<=radius;dy++){
+        const sy=Math.min(height-1,Math.max(0,y+dy));
+        for(let dx=-radius;dx<=radius;dx++){
+          const sx=Math.min(width-1,Math.max(0,x+dx));
+          const idx=(sy*width+sx)*4;
+          rArr.push(src[idx]); gArr.push(src[idx+1]); bArr.push(src[idx+2]);
+        }
+      }
+      rArr.sort((a,b)=>a-b); gArr.sort((a,b)=>a-b); bArr.sort((a,b)=>a-b);
+      const mid=rArr.length>>1; const idx=(y*width+x)*4;
+      d[idx]=rArr[mid]; d[idx+1]=gArr[mid]; d[idx+2]=bArr[mid];
+    }
+  }
+}
+// Approximate "dehaze": pushes contrast and saturation up, more strongly in
+// regions that look hazy (bright and desaturated) than in already-vivid ones.
+function fxDehaze(d,width,height,amount){
+  if(!amount) return; const amt=amount/100;
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i],g=d[i+1],b=d[i+2];
+    const lum=0.299*r+0.587*g+0.114*b;
+    const maxC=Math.max(r,g,b), minC=Math.min(r,g,b); const sat=maxC<=0?0:(maxC-minC)/maxC;
+    const haze=clamp01((lum/255)*(1-sat));
+    const strength=amt*haze;
+    const contrastF=1+strength*0.9;
+    const nr=clampByte((r-128)*contrastF+128-strength*18), ng=clampByte((g-128)*contrastF+128-strength*18), nb=clampByte((b-128)*contrastF+128-strength*18);
+    const nlum=0.299*nr+0.587*ng+0.114*nb;
+    d[i]=clampByte(nlum+(1+strength*0.6)*(nr-nlum));
+    d[i+1]=clampByte(nlum+(1+strength*0.6)*(ng-nlum));
+    d[i+2]=clampByte(nlum+(1+strength*0.6)*(nb-nlum));
+  }
+}
+function fxVortexTwist(d,width,height,amount){
+  if(!amount) return; const src=new Uint8ClampedArray(d);
+  const cx=width/2, cy=height/2; const maxR=Math.hypot(cx,cy)||1; const strength=(amount/100)*4;
+  for(let y=0;y<height;y++){
+    for(let x=0;x<width;x++){
+      const dx=x-cx, dy=y-cy; const dist=Math.hypot(dx,dy); const t=Math.min(1,dist/maxR);
+      const angle=Math.atan2(dy,dx)+strength*(1-t)*(1-t);
+      const sx=Math.min(width-1,Math.max(0,Math.round(cx+Math.cos(angle)*dist)));
+      const sy=Math.min(height-1,Math.max(0,Math.round(cy+Math.sin(angle)*dist)));
+      const idx=(y*width+x)*4, sIdx=(sy*width+sx)*4;
+      d[idx]=src[sIdx]; d[idx+1]=src[sIdx+1]; d[idx+2]=src[sIdx+2];
+    }
+  }
+}
+const BAYER4=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+function fxDither(d,width,height,levelsIn){
+  const levels=Math.max(2,Math.round(levelsIn||4)); const step=255/(levels-1);
+  for(let y=0;y<height;y++){
+    for(let x=0;x<width;x++){
+      const idx=(y*width+x)*4;
+      const threshold=(BAYER4[y%4][x%4]/16-0.5)*step;
+      d[idx]=clampByte(Math.round((d[idx]+threshold)/step)*step);
+      d[idx+1]=clampByte(Math.round((d[idx+1]+threshold)/step)*step);
+      d[idx+2]=clampByte(Math.round((d[idx+2]+threshold)/step)*step);
+    }
+  }
+}
+function fxBloom(d,width,height,amount,thresholdIn){
+  const amt=(amount==null?100:amount)/100; if(!amt) return;
+  const thr=(thresholdIn==null?70:thresholdIn)/100*255;
+  const n=width*height; const bright=new Float32Array(n);
+  for(let i=0,p=0;i<d.length;i+=4,p++){ const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; bright[p]=Math.max(0,lum-thr); }
+  const radius=Math.max(4,Math.round(Math.min(width,height)*0.05));
+  const glow=boxBlur1(bright,width,height,radius);
+  for(let i=0,p=0;i<d.length;i+=4,p++){
+    const g=glow[p]*amt;
+    d[i]=clampByte(d[i]+g); d[i+1]=clampByte(d[i+1]+g); d[i+2]=clampByte(d[i+2]+g);
+  }
+}
 function fxWaveWarp(d,width,height,amount,wavesIn){
   if(!amount) return; const src=new Uint8ClampedArray(d);
   const amp=(amount/100)*Math.min(width,height)*0.05; const freq=(Math.PI*2*(wavesIn||6))/height;

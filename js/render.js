@@ -381,6 +381,13 @@ function buildControl(node, pd){
     on.addEventListener('click',(e)=>{ node.params[pd.key]=true; on.classList.add('active'); off.classList.remove('active'); markDirtyForward(node.id); if(e.altKey) propagateParamToSelection(node, pd.key, true); scheduleEval(); pushHistory(); });
     off.addEventListener('click',(e)=>{ node.params[pd.key]=false; off.classList.add('active'); on.classList.remove('active'); markDirtyForward(node.id); if(e.altKey) propagateParamToSelection(node, pd.key, false); scheduleEval(); pushHistory(); });
     seg.appendChild(on); seg.appendChild(off); row.appendChild(seg);
+  } else if(pd.type==='text'){
+    row.innerHTML = `<div class="row-label"><span>${pd.label}</span></div>`;
+    const inp=document.createElement('input'); inp.type='text'; inp.className='n-text-input'; inp.value=val||''; inp.setAttribute('aria-label', pd.label);
+    inp.addEventListener('mousedown',e=>e.stopPropagation());
+    inp.addEventListener('input', ()=>{ node.params[pd.key]=inp.value; markDirtyForward(node.id); scheduleEval(); });
+    inp.addEventListener('change', ()=>pushHistory());
+    row.appendChild(inp);
   }
   return row;
 }

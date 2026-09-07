@@ -44,8 +44,10 @@ function makeCanvas(){
           }
         }
       },
-      save(){}, restore(){}, translate(){}, rotate(){}, scale(){}, fillRect(){},
+      save(){}, restore(){}, translate(){}, rotate(){}, scale(){}, fillRect(){}, transform(){}, strokeRect(){}, fillText(){},
       createRadialGradient(){return{addColorStop(){}};}, createLinearGradient(){return{addColorStop(){}};},
+      set strokeStyle(v){}, set lineWidth(v){}, set fillStyle(v){}, set font(v){}, set textAlign(v){}, set textBaseline(v){},
+      set globalCompositeOperation(v){}, set globalAlpha(v){},
     };
   };
   return cv;
@@ -159,6 +161,40 @@ test('Checker and Voronoi generate at the requested project size', ()=>{
   nodes={ vo:{id:'vo',type:'voronoi',params:{cells:5,colorA:'#000000',colorB:'#ffffff'},_cache:undefined,_dirty:true} };
   const vo=evaluateNode('vo');
   assert.strictEqual(vo.width,20); assert.strictEqual(vo.height,20);
+});
+
+test('every registered node type computes without throwing and produces no NaN pixels', ()=>{
+  projectSize={w:16,h:12};
+  const src=solidCanvas(16,12,120,80,200);
+  Object.entries(NODE_TYPES).forEach(([key,type])=>{
+    const params={}; type.params.forEach(pd=>{ params[pd.key]=JSON.parse(JSON.stringify(pd.default)); });
+    const ins = type.inputs.map(()=>src);
+    let out;
+    try{ out=type.compute(ins, params, {id:'test-'+key, title:key}); }
+    catch(e){ throw new Error('node "'+key+'" threw: '+e.message); }
+    if(type.outputs.length>1){
+      Object.values(out||{}).forEach(c=>{ if(c) assertNoNaN(c, key); });
+    } else if(out){
+      assertNoNaN(out, key);
+    }
+  });
+});
+function assertNoNaN(canvas, key){
+  const id=canvas.getContext().getImageData(0,0,canvas.width,canvas.height);
+  const bad=Array.from(id.data).some(v=>Number.isNaN(v));
+  assert.ok(!bad, 'node "'+key+'" produced NaN pixel data');
+}
+
+test('Pad grows the canvas and Mask produces real alpha transparency', ()=>{
+  const src=solidCanvas(10,10,200,100,50);
+  const padded=NODE_TYPES.pad.compute([src], {amount:20,color:'#000000'});
+  assert.ok(padded.width>10 && padded.height>10, 'Pad should grow the canvas');
+
+  const a=solidCanvas(4,4,200,100,50);
+  const b=solidCanvas(4,4,0,0,0); // fully black mask -> alpha should go to 0
+  const masked=NODE_TYPES.mask.compute([a,b], {invert:false});
+  const alpha=masked.getContext().getImageData(0,0,4,4).data[3];
+  assert.strictEqual(alpha, 0, 'a black mask should zero out alpha');
 });
 
 test('addLink rejects a connection that would create a cycle', ()=>{

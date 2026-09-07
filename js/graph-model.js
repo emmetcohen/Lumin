@@ -124,6 +124,33 @@ const NODE_TYPES = {
     ],
     (d,w,h,p)=>fxDuotone(d,p)) },
 
+  channelMixer: { category:'color', title:'Channel Mixer', ...pixelType(
+    [
+      {key:'rr',label:'R from R',type:'slider',min:-200,max:200,step:1,default:100},
+      {key:'rg',label:'R from G',type:'slider',min:-200,max:200,step:1,default:0},
+      {key:'rb',label:'R from B',type:'slider',min:-200,max:200,step:1,default:0},
+      {key:'gr',label:'G from R',type:'slider',min:-200,max:200,step:1,default:0},
+      {key:'gg',label:'G from G',type:'slider',min:-200,max:200,step:1,default:100},
+      {key:'gb',label:'G from B',type:'slider',min:-200,max:200,step:1,default:0},
+      {key:'br',label:'B from R',type:'slider',min:-200,max:200,step:1,default:0},
+      {key:'bg',label:'B from G',type:'slider',min:-200,max:200,step:1,default:0},
+      {key:'bb',label:'B from B',type:'slider',min:-200,max:200,step:1,default:100},
+    ],
+    (d,w,h,p)=>fxChannelMixer(d,p)) },
+
+  splitTone: { category:'color', title:'Split Tone', ...pixelType(
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:60},
+      {key:'shadowColor',label:'Shadows',type:'color',default:'#2b2350'},
+      {key:'highlightColor',label:'Highlights',type:'color',default:'#ffce7a'},
+      {key:'balance',label:'Balance',type:'slider',min:0,max:100,step:1,default:50},
+    ],
+    (d,w,h,p)=>fxSplitTone(d,p)) },
+
+  fade: { category:'color', title:'Fade', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
+    (d,w,h,p)=>fxFade(d,p.amount)) },
+
   // ---------------- DETAIL ----------------
   clarity: { category:'detail', title:'Clarity', ...pixelType(
     [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
@@ -140,6 +167,18 @@ const NODE_TYPES = {
   noiseReduction: { category:'detail', title:'Noise Reduction', ...pixelType(
     [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:0}],
     (d,w,h,p)=>fxNoiseReduction(d,w,h,p.amount)) },
+
+  highPass: { category:'detail', title:'High Pass', ...pixelType(
+    [{key:'radius',label:'Radius',type:'slider',min:1,max:40,step:1,default:8,unit:'px'}],
+    (d,w,h,p)=>fxHighPass(d,w,h,p.radius)) },
+
+  medianDenoise: { category:'detail', title:'Median Denoise', ...pixelType(
+    [{key:'radius',label:'Radius',type:'slider',min:0,max:3,step:1,default:1,unit:'px'}],
+    (d,w,h,p)=>fxMedianDenoise(d,w,h,p.radius)) },
+
+  dehaze: { category:'detail', title:'Dehaze', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
+    (d,w,h,p)=>fxDehaze(d,w,h,p.amount)) },
 
   // ---------------- DISTORT ----------------
   rgbSplit: { category:'distort', title:'RGB Split', ...pixelType(
@@ -240,6 +279,14 @@ const NODE_TYPES = {
     ],
     (d,w,h,p)=>fxLiquifyWarp(d,w,h,p.amount,p.scale)) },
 
+  vortexTwist: { category:'distort', title:'Vortex Twist', ...pixelType(
+    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:50}],
+    (d,w,h,p)=>fxVortexTwist(d,w,h,p.amount)) },
+
+  dither: { category:'distort', title:'Dither', ...pixelType(
+    [{key:'levels',label:'Levels',type:'slider',min:2,max:8,step:1,default:4}],
+    (d,w,h,p)=>fxDither(d,w,h,p.levels)) },
+
   // ---------------- FINISH ----------------
   vignette: {
     category:'finish', title:'Vignette', inputs:['Image'], outputs:['Image'],
@@ -258,6 +305,42 @@ const NODE_TYPES = {
   grain: { category:'finish', title:'Grain', ...pixelType(
     [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:35}],
     (d,w,h,p)=>fxFilmGrain(d,w,h,p.amount)) },
+
+  frame: {
+    category:'finish', title:'Frame', inputs:['Image'], outputs:['Image'],
+    params:[
+      {key:'width',label:'Width',type:'slider',min:0,max:100,step:1,default:20,unit:'px'},
+      {key:'color',label:'Color',type:'color',default:'#ffffff'},
+    ],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null; const out=cloneCanvas(src); const bw=p.width||0; if(!bw) return out;
+      const octx=out.getContext('2d'); octx.strokeStyle=p.color; octx.lineWidth=bw*2;
+      octx.strokeRect(0,0,out.width,out.height);
+      return out;
+    }
+  },
+  lightLeak: {
+    category:'finish', title:'Light Leak', inputs:['Image'], outputs:['Image'],
+    params:[
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:50},
+      {key:'color',label:'Color',type:'color',default:'#ff8a3d'},
+    ],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null; const out=cloneCanvas(src); if(!p.amount) return out;
+      const octx=out.getContext('2d'); const w=out.width,h=out.height; const c=hexToRgb(p.color);
+      const grad=octx.createRadialGradient(w*0.85,h*0.15,0,w*0.85,h*0.15,Math.max(w,h)*0.7);
+      grad.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},${(p.amount/100)*0.9})`);
+      grad.addColorStop(1,'rgba(0,0,0,0)');
+      octx.save(); octx.globalCompositeOperation='screen'; octx.fillStyle=grad; octx.fillRect(0,0,w,h); octx.restore();
+      return out;
+    }
+  },
+  bloom: { category:'finish', title:'Bloom', ...pixelType(
+    [
+      {key:'threshold',label:'Threshold',type:'slider',min:0,max:100,step:1,default:70},
+      {key:'amount',label:'Glow',type:'slider',min:0,max:100,step:1,default:50},
+    ],
+    (d,w,h,p)=>fxBloom(d,w,h,p.amount,p.threshold)) },
 
   // ---------------- TRANSFORM ----------------
   rotate: {
@@ -311,6 +394,60 @@ const NODE_TYPES = {
       const w=Math.max(1,Math.round(src.width*factor)), h=Math.max(1,Math.round(src.height*factor));
       const out=document.createElement('canvas'); out.width=w; out.height=h;
       out.getContext('2d').drawImage(src,0,0,w,h);
+      return out;
+    }
+  },
+  skew: {
+    category:'transform', title:'Skew', inputs:['Image'], outputs:['Image'],
+    params:[
+      {key:'x',label:'Horizontal',type:'slider',min:-60,max:60,step:1,default:0,unit:'°'},
+      {key:'y',label:'Vertical',type:'slider',min:-60,max:60,step:1,default:0,unit:'°'},
+    ],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null; const w=src.width,h=src.height;
+      const out=document.createElement('canvas'); out.width=w; out.height=h; const octx=out.getContext('2d');
+      const shx=Math.tan((p.x||0)*Math.PI/180), shy=Math.tan((p.y||0)*Math.PI/180);
+      octx.save(); octx.translate(w/2,h/2); octx.transform(1,shy,shx,1,0,0); octx.drawImage(src,-w/2,-h/2,w,h); octx.restore();
+      return out;
+    }
+  },
+  pad: {
+    category:'transform', title:'Pad', inputs:['Image'], outputs:['Image'],
+    params:[
+      {key:'amount',label:'Padding',type:'slider',min:0,max:50,step:1,default:10,unit:'%'},
+      {key:'color',label:'Fill color',type:'color',default:'#000000'},
+    ],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null; const w=src.width,h=src.height;
+      const pad=Math.round(Math.min(w,h)*(p.amount||0)/100);
+      const out=document.createElement('canvas'); out.width=w+pad*2; out.height=h+pad*2;
+      const octx=out.getContext('2d'); octx.fillStyle=p.color; octx.fillRect(0,0,out.width,out.height);
+      octx.drawImage(src,pad,pad);
+      return out;
+    }
+  },
+  tile: {
+    category:'transform', title:'Tile', inputs:['Image'], outputs:['Image'],
+    params:[
+      {key:'repeats',label:'Repeats',type:'slider',min:1,max:6,step:1,default:2},
+      {key:'mirror',label:'Mirror',type:'toggle',default:true},
+    ],
+    compute(ins,p){
+      const src=ins[0]; if(!src) return null; const w=src.width,h=src.height;
+      const n=Math.max(1,Math.round(p.repeats||2));
+      const out=document.createElement('canvas'); out.width=w; out.height=h; const octx=out.getContext('2d');
+      const tw=w/n, th=h/n;
+      for(let ty=0;ty<n;ty++){
+        for(let tx=0;tx<n;tx++){
+          const flipX = p.mirror && (tx%2===1), flipY = p.mirror && (ty%2===1);
+          octx.save();
+          octx.translate(tx*tw, ty*th);
+          octx.translate(flipX?tw:0, flipY?th:0);
+          octx.scale(flipX?-1:1, flipY?-1:1);
+          octx.drawImage(src,0,0,w,h,0,0,tw,th);
+          octx.restore();
+        }
+      }
       return out;
     }
   },
@@ -402,6 +539,60 @@ const NODE_TYPES = {
       octx.putImageData(id,0,0); return out;
     }
   },
+  radialGradient: {
+    category:'generate', title:'Radial Gradient', inputs:[], outputs:['Image'],
+    params:[
+      {key:'colorA',label:'Center',type:'color',default:'#ffffff'},
+      {key:'colorB',label:'Edge',type:'color',default:'#161617'},
+      {key:'radius',label:'Radius',type:'slider',min:10,max:150,step:1,default:70,unit:'%'},
+    ],
+    compute(ins,p){
+      const out=document.createElement('canvas'); out.width=projectSize.w; out.height=projectSize.h;
+      const octx=out.getContext('2d'); const w=out.width,h=out.height,cx=w/2,cy=h/2;
+      const r=Math.max(w,h)*((p.radius||70)/100);
+      const grad=octx.createRadialGradient(cx,cy,0,cx,cy,r);
+      grad.addColorStop(0,p.colorA); grad.addColorStop(1,p.colorB);
+      octx.fillStyle=grad; octx.fillRect(0,0,w,h); return out;
+    }
+  },
+  stripes: {
+    category:'generate', title:'Stripes', inputs:[], outputs:['Image'],
+    params:[
+      {key:'colorA',label:'Color A',type:'color',default:'#ffffff'},
+      {key:'colorB',label:'Color B',type:'color',default:'#161617'},
+      {key:'size',label:'Size',type:'slider',min:2,max:200,step:1,default:30,unit:'px'},
+      {key:'angle',label:'Angle',type:'slider',min:0,max:180,step:1,default:0,unit:'°'},
+    ],
+    compute(ins,p){
+      const w=projectSize.w, h=projectSize.h;
+      const out=document.createElement('canvas'); out.width=w; out.height=h; const octx=out.getContext('2d');
+      const sz=Math.max(2,p.size||30); const rad=(p.angle||0)*Math.PI/180; const diag=Math.hypot(w,h);
+      octx.fillStyle=p.colorB; octx.fillRect(0,0,w,h);
+      octx.save(); octx.translate(w/2,h/2); octx.rotate(rad); octx.translate(-w/2,-h/2);
+      octx.fillStyle=p.colorA;
+      for(let x=-diag; x<diag; x+=sz*2) octx.fillRect(x, -diag/2, sz, diag*2);
+      octx.restore();
+      return out;
+    }
+  },
+  text: {
+    category:'generate', title:'Text', inputs:[], outputs:['Image'],
+    params:[
+      {key:'content',label:'Text',type:'text',default:'Lumin'},
+      {key:'color',label:'Color',type:'color',default:'#ffffff'},
+      {key:'size',label:'Size',type:'slider',min:10,max:400,step:1,default:80,unit:'px'},
+      {key:'bg',label:'Background',type:'color',default:'#161617'},
+    ],
+    compute(ins,p){
+      const out=document.createElement('canvas'); out.width=projectSize.w; out.height=projectSize.h;
+      const octx=out.getContext('2d'); const w=out.width,h=out.height;
+      octx.fillStyle=p.bg; octx.fillRect(0,0,w,h);
+      octx.fillStyle=p.color; octx.font=`700 ${p.size||80}px Inter, sans-serif`;
+      octx.textAlign='center'; octx.textBaseline='middle';
+      octx.fillText(p.content||'', w/2, h/2);
+      return out;
+    }
+  },
 
   // ---------------- COMPOSITE ----------------
   mix: {
@@ -466,6 +657,45 @@ const NODE_TYPES = {
       const od=octx.createImageData(w,h);
       for(let i=0;i<od.data.length;i+=4){
         od.data[i]=rd?rd[i]:0; od.data[i+1]=gd?gd[i+1]:0; od.data[i+2]=bd?bd[i+2]:0; od.data[i+3]=255;
+      }
+      octx.putImageData(od,0,0); return out;
+    }
+  },
+  mask: {
+    category:'composite', title:'Mask', inputs:['A','B'], outputs:['Image'],
+    params:[{key:'invert',label:'Invert mask',type:'toggle',default:false}],
+    compute(ins,p){
+      const a=ins[0], b=ins[1]; if(!a) return null; if(!b) return cloneCanvas(a);
+      const out=cloneCanvas(a); const octx=out.getContext('2d'); const w=out.width,h=out.height;
+      const maskC=document.createElement('canvas'); maskC.width=w; maskC.height=h; maskC.getContext('2d').drawImage(b,0,0,w,h);
+      const id=octx.getImageData(0,0,w,h); const md=maskC.getContext('2d').getImageData(0,0,w,h).data;
+      for(let i=0;i<id.data.length;i+=4){
+        let lum=(0.299*md[i]+0.587*md[i+1]+0.114*md[i+2])/255;
+        if(p.invert) lum=1-lum;
+        id.data[i+3]=Math.round(lum*255);
+      }
+      octx.putImageData(id,0,0); return out;
+    }
+  },
+  displace: {
+    category:'composite', title:'Displace', inputs:['A','B'], outputs:['Image'],
+    params:[{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:30}],
+    compute(ins,p){
+      const a=ins[0], b=ins[1]; if(!a) return null; if(!b || !p.amount) return cloneCanvas(a);
+      const w=a.width,h=a.height;
+      const aC=cloneCanvas(a); const srcData=aC.getContext('2d').getImageData(0,0,w,h).data;
+      const bC=document.createElement('canvas'); bC.width=w; bC.height=h; bC.getContext('2d').drawImage(b,0,0,w,h);
+      const dispData=bC.getContext('2d').getImageData(0,0,w,h).data;
+      const out=document.createElement('canvas'); out.width=w; out.height=h; const octx=out.getContext('2d');
+      const od=octx.createImageData(w,h); const maxOffset=(p.amount/100)*Math.min(w,h)*0.06;
+      for(let y=0;y<h;y++){
+        for(let x=0;x<w;x++){
+          const di=(y*w+x)*4;
+          const dispLum=(dispData[di]+dispData[di+1]+dispData[di+2])/3/255-0.5;
+          const sx=Math.min(w-1,Math.max(0,x+Math.round(dispLum*maxOffset*2)));
+          const si=(y*w+sx)*4;
+          od.data[di]=srcData[si]; od.data[di+1]=srcData[si+1]; od.data[di+2]=srcData[si+2]; od.data[di+3]=srcData[si+3];
+        }
       }
       octx.putImageData(od,0,0); return out;
     }
