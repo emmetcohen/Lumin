@@ -161,6 +161,28 @@ function fxBlackWhite(d,amount){
   if(!amount) return; const a=amount/100;
   for(let i=0;i<d.length;i+=4){ const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; d[i]=clampByte(d[i]+(lum-d[i])*a); d[i+1]=clampByte(d[i+1]+(lum-d[i+1])*a); d[i+2]=clampByte(d[i+2]+(lum-d[i+2])*a); }
 }
+function hueToRgb(h){
+  h=((h%360)+360)%360;
+  const x=1-Math.abs((h/60)%2-1); let r,g,b;
+  if(h<60){r=1;g=x;b=0;} else if(h<120){r=x;g=1;b=0;} else if(h<180){r=0;g=1;b=x;}
+  else if(h<240){r=0;g=x;b=1;} else if(h<300){r=x;g=0;b=1;} else {r=1;g=0;b=x;}
+  return [r*255,g*255,b*255];
+}
+// Maps each pixel's own luminance to a hue on the full rainbow wheel, cycling
+// through it `bands` times across the brightness range — so the bands trace
+// the source image's brightness contours (edges/shapes stay legible) while
+// the color itself becomes a repeating rainbow. Shading by luminance keeps a
+// sense of the original's depth instead of flat, fully-saturated color patches.
+function fxRainbow(d,width,height,amount,bandsIn){
+  const amt=(amount==null?100:amount)/100; if(!amt) return;
+  const bands=Math.max(1,bandsIn||4);
+  for(let i=0;i<d.length;i+=4){
+    const lum=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])/255;
+    const c=hueToRgb(lum*bands*360); const shade=0.35+0.65*lum;
+    const tr=c[0]*shade, tg=c[1]*shade, tb=c[2]*shade;
+    d[i]=clampByte(d[i]+(tr-d[i])*amt); d[i+1]=clampByte(d[i+1]+(tg-d[i+1])*amt); d[i+2]=clampByte(d[i+2]+(tb-d[i+2])*amt);
+  }
+}
 function fxColorRamp(d,stopsIn,interpolation,amount){
   const amt=(amount==null?100:amount)/100; if(!amt) return;
   const raw=(stopsIn&&stopsIn.length?stopsIn:[{pos:0,color:'#000000'},{pos:1,color:'#ffffff'}]);

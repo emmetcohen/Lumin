@@ -194,6 +194,13 @@ const NODE_TYPES = {
     ],
     (d,w,h,p)=>fxWaveWarp(d,w,h,p.amount,p.waves)) },
 
+  rainbow: { category:'distort', title:'Rainbow', ...pixelType(
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
+      {key:'bands',label:'Bands',type:'slider',min:1,max:12,step:1,default:4},
+    ],
+    (d,w,h,p)=>fxRainbow(d,w,h,p.amount,p.bands)) },
+
   // ---------------- FINISH ----------------
   vignette: {
     category:'finish', title:'Vignette', inputs:['Image'], outputs:['Image'],
