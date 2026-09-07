@@ -340,6 +340,11 @@
     position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100;
     display:flex; align-items:center; justify-content:center;
   }
+  /* .modal-overlay's own `display:flex` has the same specificity as the
+     browser's built-in `[hidden]{display:none}` rule, and author CSS wins
+     that tie — so without this, the overlay's `hidden` attribute is
+     silently overridden and it shows (and blocks all clicks) permanently. */
+  .modal-overlay[hidden]{ display:none; }
   .modal-box{
     background:var(--panel-2); border:1px solid var(--border); border-radius:10px;
     padding:20px; width:320px; max-width:calc(100vw - 40px); box-shadow:0 12px 40px rgba(0,0,0,0.5);
