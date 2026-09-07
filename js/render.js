@@ -135,6 +135,46 @@ function makeRoomForInsertedNode(newNode, fromNode, toNode){
   }
 }
 
+// Pure layout math for "Tidy graph" — no DOM here, so it's unit-testable on
+// its own. Layers nodes left-to-right by longest path from a graph root
+// (Kahn's algorithm; safe because addLink already forbids cycles, so this is
+// guaranteed to terminate), then stacks each layer vertically.
+function computeTidyLayout(nodesObj, linksArr){
+  const ids=Object.keys(nodesObj); const positions={};
+  if(!ids.length) return positions;
+  const inDegree={}; ids.forEach(id=>inDegree[id]=0);
+  linksArr.forEach(l=>{ if(inDegree[l.to]!=null) inDegree[l.to]++; });
+  const depth={}; ids.forEach(id=>depth[id]=0);
+  const remaining={...inDegree};
+  const queue=ids.filter(id=>inDegree[id]===0);
+  const visited=new Set();
+  while(queue.length){
+    const id=queue.shift(); if(visited.has(id)) continue; visited.add(id);
+    linksArr.filter(l=>l.from===id).forEach(l=>{
+      if(!(l.to in depth) || depth[l.to] < depth[id]+1) depth[l.to]=depth[id]+1;
+      if(remaining[l.to]!=null){ remaining[l.to]--; if(remaining[l.to]<=0) queue.push(l.to); }
+    });
+  }
+  const byDepth={};
+  ids.forEach(id=>{ const dep=depth[id]||0; (byDepth[dep]=byDepth[dep]||[]).push(id); });
+  const HGAP=260, VGAP=40, ROW_HEIGHT=200, START_X=60, START_Y=60;
+  Object.keys(byDepth).map(Number).sort((a,b)=>a-b).forEach(dep=>{
+    const layer=byDepth[dep].sort((a,b)=>(nodesObj[a].y||0)-(nodesObj[b].y||0));
+    let y=START_Y;
+    layer.forEach(id=>{ positions[id]={ x: START_X+dep*HGAP, y }; y+=ROW_HEIGHT+VGAP; });
+  });
+  return positions;
+}
+function tidyGraph(){
+  const positions=computeTidyLayout(nodes, links);
+  if(!Object.keys(positions).length) return;
+  Object.entries(positions).forEach(([id,pos])=>{ nodes[id].x=pos.x; nodes[id].y=pos.y; renderNode(nodes[id]); });
+  drawWires();
+  const frameBtn=document.getElementById('frameBtn'); if(frameBtn) frameBtn.click();
+  pushHistory();
+  showToast('Graph tidied');
+}
+
 function drawWires(){
   wireSvg.innerHTML='';
   links.forEach(l=>{
@@ -166,6 +206,79 @@ function sizeSvg(){
 // that point), drag a marker to reposition it, click a marker to select it
 // and edit its color below. Interpolation itself is a plain 'select' param
 // defined alongside 'stops', so it reuses the existing select control.
+// A freeform tone-curve editor: an SVG graph (x = input brightness, y = output
+// brightness) with draggable control points. Click empty graph space to add a
+// point, drag a point to move it, select one and hit Remove to delete it
+// (minimum two points, same rule as the color ramp above).
+function buildCurveEditor(node, pd){
+  const wrap=document.createElement('div'); wrap.className='curve-wrap';
+  const label=document.createElement('div'); label.className='row-label'; label.innerHTML=`<span>${pd.label}</span>`;
+  wrap.appendChild(label);
+
+  const W=182, H=120;
+  const svgNS='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(svgNS,'svg'); svg.setAttribute('class','curve-graph'); svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const grid=document.createElementNS(svgNS,'path'); grid.setAttribute('class','curve-grid'); grid.setAttribute('d',`M0,${H} L${W},0`);
+  const curvePath=document.createElementNS(svgNS,'path'); curvePath.setAttribute('class','curve-line');
+  svg.appendChild(grid); svg.appendChild(curvePath);
+  wrap.appendChild(svg);
+
+  const controls=document.createElement('div'); controls.className='ramp-controls';
+  const delBtn=document.createElement('div'); delBtn.className='ramp-del'; delBtn.textContent='Remove point';
+  controls.appendChild(delBtn);
+  wrap.appendChild(controls);
+  const hint=document.createElement('div'); hint.className='ramp-hint'; hint.textContent='Click the graph to add a point';
+  wrap.appendChild(hint);
+
+  const points=()=>node.params[pd.key];
+  let selectedIdx=points().length-1;
+
+  function toSvg(pt){ return { sx: pt.x/255*W, sy: H-(pt.y/255*H) }; }
+  function fromSvg(sx,sy){ return { x: clamp01(sx/W)*255, y: clamp01(1-sy/H)*255 }; }
+
+  function refresh(){
+    const sorted=points().slice().sort((a,b)=>a.x-b.x);
+    curvePath.setAttribute('d', sorted.map((pt,i)=>{ const s=toSvg(pt); return (i===0?'M':'L')+s.sx+','+s.sy; }).join(' '));
+    svg.querySelectorAll('.curve-point').forEach(el=>el.remove());
+    points().forEach((pt,i)=>{
+      const s=toSvg(pt);
+      const c=document.createElementNS(svgNS,'circle'); c.setAttribute('class','curve-point'+(i===selectedIdx?' selected':''));
+      c.setAttribute('cx',s.sx); c.setAttribute('cy',s.sy); c.setAttribute('r',4);
+      c.addEventListener('mousedown',(e)=>{
+        e.stopPropagation(); e.preventDefault(); selectedIdx=i; refresh();
+        const rect=svg.getBoundingClientRect();
+        function onMove(ev){
+          const sx=(ev.clientX-rect.left)/rect.width*W, sy=(ev.clientY-rect.top)/rect.height*H;
+          const p=fromSvg(sx,sy); points()[i].x=p.x; points()[i].y=p.y;
+          markDirtyForward(node.id); scheduleEval(); refresh();
+        }
+        function onUp(){ document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); pushHistory(); }
+        document.addEventListener('mousemove',onMove); document.addEventListener('mouseup',onUp);
+      });
+      svg.appendChild(c);
+    });
+    delBtn.classList.toggle('disabled', points().length<=2);
+  }
+
+  svg.addEventListener('mousedown',(e)=>{
+    if(e.target!==svg && e.target!==grid && e.target!==curvePath) return; // a point's own handler already stopped propagation
+    e.stopPropagation();
+    const rect=svg.getBoundingClientRect();
+    const sx=(e.clientX-rect.left)/rect.width*W, sy=(e.clientY-rect.top)/rect.height*H;
+    points().push(fromSvg(sx,sy)); selectedIdx=points().length-1;
+    markDirtyForward(node.id); scheduleEval(); refresh(); pushHistory();
+  });
+  delBtn.addEventListener('mousedown', e=>e.stopPropagation());
+  delBtn.addEventListener('click', ()=>{
+    if(points().length<=2) return;
+    points().splice(selectedIdx,1); selectedIdx=Math.max(0,selectedIdx-1);
+    markDirtyForward(node.id); scheduleEval(); refresh(); pushHistory();
+  });
+
+  refresh();
+  return wrap;
+}
+
 function buildColorRamp(node, pd){
   const wrap=document.createElement('div'); wrap.className='ramp-wrap';
   const label=document.createElement('div'); label.className='row-label'; label.innerHTML=`<span>${pd.label}</span>`;
@@ -353,6 +466,8 @@ function buildControl(node, pd){
     row.appendChild(buildBlenderSlider(node, pd));
   } else if(pd.type==='ramp'){
     return buildColorRamp(node, pd);
+  } else if(pd.type==='curve'){
+    return buildCurveEditor(node, pd);
   } else if(pd.type==='select'){
     row.innerHTML = `<div class="row-label"><span>${pd.label}</span></div>`;
     const sel=document.createElement('select'); sel.className='n-select'; sel.setAttribute('aria-label', pd.label);
@@ -368,11 +483,18 @@ function buildControl(node, pd){
     row.appendChild(sel);
   } else if(pd.type==='color'){
     row.innerHTML = `<div class="row-label"><span>${pd.label}</span></div>`;
+    const colorRow=document.createElement('div'); colorRow.className='color-row';
     const inp=document.createElement('input'); inp.type='color'; inp.value=val; inp.setAttribute('aria-label', pd.label);
     inp.addEventListener('mousedown',e=>e.stopPropagation());
     inp.addEventListener('input', (e)=>{ node.params[pd.key]=inp.value; markDirtyForward(node.id); if(e.altKey) propagateParamToSelection(node, pd.key, inp.value); scheduleEval(); });
     inp.addEventListener('change', ()=>pushHistory());
-    row.appendChild(inp);
+    const eyedrop=document.createElement('div'); eyedrop.className='eyedropper-btn'; eyedrop.textContent='⊙';
+    eyedrop.title='Pick a color from the image';
+    a11yButton(eyedrop, 'Pick a color from the image');
+    eyedrop.addEventListener('mousedown', e=>e.stopPropagation());
+    eyedrop.addEventListener('click', ()=>startColorPick(node, pd.key, inp, eyedrop));
+    colorRow.appendChild(inp); colorRow.appendChild(eyedrop);
+    row.appendChild(colorRow);
   } else if(pd.type==='toggle'){
     row.innerHTML = `<div class="row-label"><span>${pd.label}</span></div>`;
     const seg=document.createElement('div'); seg.className='seg-row';
@@ -627,6 +749,39 @@ let compareDividerEl=null, splitPos=0.5, lastCompareOriginal=null, lastCompareGr
 // showing (which, in split-compare mode, is a composite of graded+original) —
 // this is what Export should use for a "working size" download.
 let lastGradedCanvas=null;
+
+/* ---- eyedropper: click the viewer to sample a color into any color field ---- */
+let pickingColor=null; // { node, key, inputEl, btnEl }
+function startColorPick(node, key, inputEl, btnEl){
+  if(pickingColor && pickingColor.btnEl) pickingColor.btnEl.classList.remove('active');
+  pickingColor={ node, key, inputEl, btnEl };
+  btnEl.classList.add('active');
+  previewStage.classList.add('picking-color');
+  showToast('Click the image to pick a color (Esc to cancel)');
+}
+function cancelColorPick(){
+  if(!pickingColor) return;
+  if(pickingColor.btnEl) pickingColor.btnEl.classList.remove('active');
+  pickingColor=null;
+  previewStage.classList.remove('picking-color');
+}
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && pickingColor) cancelColorPick(); });
+// Capture phase so this runs before the compare-divider's own mousedown handler.
+previewStage.addEventListener('mousedown', (e)=>{
+  if(!pickingColor) return;
+  e.preventDefault(); e.stopPropagation();
+  const { node, key, inputEl } = pickingColor;
+  if(!previewCanvasEl){ cancelColorPick(); return; }
+  const rect=previewCanvasEl.getBoundingClientRect();
+  const x=Math.floor((e.clientX-rect.left)/rect.width*previewCanvasEl.width);
+  const y=Math.floor((e.clientY-rect.top)/rect.height*previewCanvasEl.height);
+  cancelColorPick();
+  if(x<0||y<0||x>=previewCanvasEl.width||y>=previewCanvasEl.height) return;
+  const px=previewCanvasEl.getContext('2d').getImageData(x,y,1,1).data;
+  const hex=rgbToHex([px[0],px[1],px[2]]);
+  node.params[key]=hex; if(inputEl) inputEl.value=hex;
+  markDirtyForward(node.id); scheduleEval(); pushHistory();
+}, true);
 
 function updatePreview(canvas, isOriginal){
   if(compareDividerEl){ compareDividerEl.remove(); compareDividerEl=null; }

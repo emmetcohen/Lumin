@@ -72,6 +72,25 @@ global.showToast=()=>{};
 const pm=fs.readFileSync(path.join(__dirname,'../js/pixel-math.js'),'utf8').replace("'use strict';",'');
 const gm=fs.readFileSync(path.join(__dirname,'../js/graph-model.js'),'utf8').replace("'use strict';",'');
 
+// render.js has heavy top-level DOM dependencies (graphWrap, previewStage,
+// etc. looked up via getElementById at load time), so it can't be eval'd
+// wholesale the way pixel-math.js/graph-model.js are above. computeTidyLayout
+// is pure (no DOM calls in its own body) — pull just that function's source
+// out by balanced braces so it can be tested in isolation.
+function extractFunction(src, name){
+  const m=src.match(new RegExp('function\\s+'+name+'\\s*\\('));
+  if(!m) throw new Error('function '+name+' not found');
+  const braceStart=src.indexOf('{', m.index);
+  let depth=0, j=braceStart;
+  for(; j<src.length; j++){
+    if(src[j]==='{') depth++;
+    else if(src[j]==='}'){ depth--; if(depth===0) break; }
+  }
+  return src.slice(m.index, j+1);
+}
+const renderSrc=fs.readFileSync(path.join(__dirname,'../js/render.js'),'utf8');
+const computeTidyLayoutSrc=extractFunction(renderSrc, 'computeTidyLayout');
+
 let passed=0;
 function test(name, fn){
   try{ fn(); passed++; console.log('  ok -', name); }
@@ -258,5 +277,105 @@ test('previewPinId lets runEvaluation preview a node other than the real Output,
   global.updatePreview=()=>{};
 });
 
+test('Curves node: identity curve is a no-op, a lifted curve brightens', ()=>{
+  const src=solidCanvas(2,2,100,100,100);
+  const identity=NODE_TYPES.curves.compute([src], {points:[{x:0,y:0},{x:255,y:255}]});
+  assert.strictEqual(identity.getContext().getImageData(0,0,2,2).data[0], 100);
+
+  const lifted=NODE_TYPES.curves.compute([src], {points:[{x:0,y:40},{x:255,y:255}]});
+  assert.ok(lifted.getContext().getImageData(0,0,2,2).data[0] > 100, 'lifting the shadow point should brighten a mid-gray pixel');
+});
+
+test('Seed params are deterministic (same seed -> identical output) and actually vary the pattern (different seed -> different output)', ()=>{
+  projectSize={w:24,h:18};
+  [
+    ['noise', {amount:100,colorMode:'color'}],
+    ['voronoi', {cells:8,colorA:'#000000',colorB:'#ffffff'}],
+  ].forEach(([key,baseParams])=>{
+    const a1=NODE_TYPES[key].compute([], {...baseParams, seed:1});
+    const a2=NODE_TYPES[key].compute([], {...baseParams, seed:1});
+    const b=NODE_TYPES[key].compute([], {...baseParams, seed:2});
+    const da1=a1.getContext().getImageData(0,0,a1.width,a1.height).data;
+    const da2=a2.getContext().getImageData(0,0,a2.width,a2.height).data;
+    const db=b.getContext().getImageData(0,0,b.width,b.height).data;
+    assert.deepStrictEqual(Array.from(da1), Array.from(da2), key+': same seed must reproduce the exact same output');
+    assert.notDeepStrictEqual(Array.from(da1), Array.from(db), key+': a different seed must change the output');
+  });
+
+  // A flat solid color can't reveal a spatial warp like glitch/liquify (shifting
+  // identical pixels around is invisible), so use a gradient with real variation.
+  const gw=20,gh=16; const src=makeCanvas(); src.width=gw; src.height=gh;
+  const gid=src.getContext().createImageData(gw,gh);
+  for(let y=0;y<gh;y++) for(let x=0;x<gw;x++){ const i=(y*gw+x)*4; const v=Math.round((x/(gw-1))*255); gid.data[i]=v; gid.data[i+1]=255-v; gid.data[i+2]=(y*13)%255; gid.data[i+3]=255; }
+  src.getContext().putImageData(gid);
+  [
+    ['glitch', {amount:60}], ['oldFilm', {amount:60}], ['liquifyWarp', {amount:60,scale:4}],
+  ].forEach(([key,baseParams])=>{
+    const a1=NODE_TYPES[key].compute([src], {...baseParams, seed:1});
+    const a2=NODE_TYPES[key].compute([src], {...baseParams, seed:1});
+    const b=NODE_TYPES[key].compute([src], {...baseParams, seed:2});
+    const da1=a1.getContext().getImageData(0,0,20,16).data;
+    const da2=a2.getContext().getImageData(0,0,20,16).data;
+    const db=b.getContext().getImageData(0,0,20,16).data;
+    assert.deepStrictEqual(Array.from(da1), Array.from(da2), key+': same seed must reproduce the exact same output');
+    assert.notDeepStrictEqual(Array.from(da1), Array.from(db), key+': a different seed must change the output');
+  });
+});
+
+test('Channel-limited nodes only touch the selected channel', ()=>{
+  const src=solidCanvas(2,2,60,60,60);
+  const invR=NODE_TYPES.invert.compute([src], {amount:100, channel:'R'}).getContext().getImageData(0,0,2,2).data;
+  assert.notStrictEqual(invR[0], 60, 'R channel should have inverted');
+  assert.strictEqual(invR[1], 60, 'G channel should be untouched when channel=R');
+  assert.strictEqual(invR[2], 60, 'B channel should be untouched when channel=R');
+
+  const gammaB=NODE_TYPES.gamma.compute([src], {amount:250, channel:'B'}).getContext().getImageData(0,0,2,2).data;
+  assert.strictEqual(gammaB[0], 60, 'R channel should be untouched when channel=B');
+  assert.notStrictEqual(gammaB[2], 60, 'B channel should have changed');
+});
+
+test('Wave Warp and Pixel Sort direction option actually changes which axis is affected', ()=>{
+  // a vertical gradient (varies by row) — a *horizontal* row-shift warp can't
+  // change a value that's already constant along each row, but a *vertical*
+  // column-shift warp pulls in values from neighboring rows and will.
+  // Big enough that the warp's shift (which scales with image size) rounds to
+  // a nonzero pixel offset — at a tiny canvas size the shift can round to 0
+  // and make the test meaningless regardless of direction.
+  const w=40,h=60; const c=makeCanvas(); c.width=w; c.height=h;
+  const id=c.getContext().createImageData(w,h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const v=Math.round(y/(h-1)*255); const i=(y*w+x)*4; id.data[i]=v; id.data[i+1]=v; id.data[i+2]=v; id.data[i+3]=255; }
+  c.getContext().putImageData(id);
+
+  const horiz=NODE_TYPES.waveWarp.compute([c], {amount:100,waves:6,direction:'Horizontal'}).getContext().getImageData(0,0,w,h).data;
+  const vert=NODE_TYPES.waveWarp.compute([c], {amount:100,waves:6,direction:'Vertical'}).getContext().getImageData(0,0,w,h).data;
+  assert.deepStrictEqual(Array.from(horiz), Array.from(id.data), 'a row-constant image is unchanged by a horizontal (row-shift) warp');
+  assert.notDeepStrictEqual(Array.from(vert), Array.from(id.data), 'a vertical (column-shift) warp must change a row-constant image');
+});
+
 console.log(passed+' passed');
+`);
+
+// computeTidyLayout is pure (no DOM), so it's evaluated on its own here rather
+// than folded into the render.js-avoiding block above.
+eval(computeTidyLayoutSrc + `
+test('computeTidyLayout: a straight A -> B -> C chain lands in three ascending columns', ()=>{
+  const nodesObj={ a:{x:999,y:5}, b:{x:999,y:5}, c:{x:999,y:5} };
+  const linksArr=[{from:'a',to:'b'},{from:'b',to:'c'}];
+  const pos=computeTidyLayout(nodesObj, linksArr);
+  assert.ok(pos.a.x < pos.b.x && pos.b.x < pos.c.x, 'depth should increase left-to-right along the chain');
+});
+
+test('computeTidyLayout: two parallel roots feeding one node land in the same column, stacked', ()=>{
+  const nodesObj={ a:{x:0,y:0}, b:{x:0,y:100}, c:{x:0,y:0} };
+  const linksArr=[{from:'a',to:'c'},{from:'b',to:'c'}];
+  const pos=computeTidyLayout(nodesObj, linksArr);
+  assert.strictEqual(pos.a.x, pos.b.x, 'two roots should share a column');
+  assert.notStrictEqual(pos.a.y, pos.b.y, 'two nodes in the same column must not overlap vertically');
+  assert.ok(pos.c.x > pos.a.x, 'the shared target should be one column to the right of both roots');
+});
+
+test('computeTidyLayout: an empty graph returns no positions', ()=>{
+  assert.deepStrictEqual(computeTidyLayout({}, []), {});
+});
+console.log(passed+' passed (tidy layout)');
 `);

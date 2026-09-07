@@ -68,6 +68,8 @@ async function doExport(){
 document.getElementById('exportBtn').addEventListener('click', doExport);
 document.getElementById('exportBtn2').addEventListener('click', doExport);
 document.getElementById('projectsBtn').addEventListener('click', openProjectsPanel);
+document.getElementById('tidyBtn').addEventListener('click', tidyGraph);
+document.getElementById('shortcutsBtn').addEventListener('click', showShortcutsHelp);
 
 function showToast(msg){
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');

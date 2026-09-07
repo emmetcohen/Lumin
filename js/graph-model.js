@@ -54,12 +54,18 @@ const NODE_TYPES = {
 
   // ---------------- COLOR ----------------
   exposure: { category:'color', title:'Exposure', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
-    (d,w,h,p)=>fxExposure(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0},
+      {key:'offset',label:'Offset',type:'slider',min:-50,max:50,step:1,default:0},
+    ],
+    (d,w,h,p)=>fxExposure(d,p.amount,p.offset)) },
 
   contrast: { category:'color', title:'Contrast', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
-    (d,w,h,p)=>fxContrast(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0},
+      {key:'pivot',label:'Pivot',type:'slider',min:0,max:100,step:1,default:50,unit:'%'},
+    ],
+    (d,w,h,p)=>fxContrast(d,p.amount,p.pivot)) },
 
   levels: { category:'color', title:'Levels', ...pixelType(
     [
@@ -78,28 +84,48 @@ const NODE_TYPES = {
     (d,w,h,p)=>fxWhiteBalance(d,p)) },
 
   saturation: { category:'color', title:'Saturation', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
-    (d,w,h,p)=>fxSaturation(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0},
+      {key:'protectHighlights',label:'Protect highlights',type:'toggle',default:false},
+    ],
+    (d,w,h,p)=>fxSaturation(d,p.amount,p.protectHighlights)) },
 
   vibrance: { category:'color', title:'Vibrance', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
-    (d,w,h,p)=>fxVibrance(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0},
+      {key:'protectSkin',label:'Protect skin tones',type:'toggle',default:true},
+    ],
+    (d,w,h,p)=>fxVibrance(d,p.amount,p.protectSkin)) },
 
   hueShift: { category:'color', title:'Hue Shift', ...pixelType(
-    [{key:'degrees',label:'Degrees',type:'slider',min:-180,max:180,step:1,default:0,unit:'°'}],
-    (d,w,h,p)=>fxHueShift(d,p.degrees)) },
+    [
+      {key:'degrees',label:'Degrees',type:'slider',min:-180,max:180,step:1,default:0,unit:'°'},
+      {key:'lightness',label:'Lightness',type:'slider',min:-100,max:100,step:1,default:0},
+    ],
+    (d,w,h,p)=>fxHueShift(d,p.degrees,p.lightness)) },
 
   blackWhite: { category:'color', title:'Black & White', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100}],
-    (d,w,h,p)=>fxBlackWhite(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
+      {key:'redWeight',label:'Red response',type:'slider',min:0,max:200,step:1,default:100,unit:'%'},
+      {key:'greenWeight',label:'Green response',type:'slider',min:0,max:200,step:1,default:100,unit:'%'},
+      {key:'blueWeight',label:'Blue response',type:'slider',min:0,max:200,step:1,default:100,unit:'%'},
+    ],
+    (d,w,h,p)=>fxBlackWhite(d,p.amount,p.redWeight,p.greenWeight,p.blueWeight)) },
 
   invert: { category:'color', title:'Invert', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100}],
-    (d,w,h,p)=>fxInvert(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
+      {key:'channel',label:'Channel',type:'select',options:['RGB','R','G','B'],default:'RGB'},
+    ],
+    (d,w,h,p)=>fxInvert(d,p.amount,p.channel)) },
 
   gamma: { category:'color', title:'Gamma', ...pixelType(
-    [{key:'amount',label:'Gamma',type:'slider',min:10,max:300,step:1,default:100,unit:'%'}],
-    (d,w,h,p)=>fxGamma(d,p.amount)) },
+    [
+      {key:'amount',label:'Gamma',type:'slider',min:10,max:300,step:1,default:100,unit:'%'},
+      {key:'channel',label:'Channel',type:'select',options:['RGB','R','G','B'],default:'RGB'},
+    ],
+    (d,w,h,p)=>fxGamma(d,p.amount,p.channel)) },
 
   clamp: { category:'color', title:'Clamp', ...pixelType(
     [
@@ -107,6 +133,10 @@ const NODE_TYPES = {
       {key:'high',label:'Max',type:'slider',min:0,max:100,step:1,default:100,unit:'%'},
     ],
     (d,w,h,p)=>fxClamp(d,p.low,p.high)) },
+
+  curves: { category:'color', title:'Curves', ...pixelType(
+    [{key:'points',label:'Curve',type:'curve',default:[{x:0,y:0},{x:255,y:255}]}],
+    (d,w,h,p)=>fxCurve(d,p.points)) },
 
   colorRamp: { category:'color', title:'Color Ramp', ...pixelType(
     [
@@ -148,66 +178,112 @@ const NODE_TYPES = {
     (d,w,h,p)=>fxSplitTone(d,p)) },
 
   fade: { category:'color', title:'Fade', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
-    (d,w,h,p)=>fxFade(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'tintColor',label:'Tint',type:'color',default:'#ffb066'},
+    ],
+    (d,w,h,p)=>fxFade(d,p.amount,p.tintColor)) },
 
   // ---------------- DETAIL ----------------
   clarity: { category:'detail', title:'Clarity', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0}],
-    (d,w,h,p)=>fxClaritySharpen(d,w,h,p.amount,0)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:0},
+      {key:'radius',label:'Radius',type:'slider',min:1,max:30,step:1,default:8,unit:'px'},
+    ],
+    (d,w,h,p)=>fxClaritySharpen(d,w,h,p.amount,0,p.radius,0)) },
 
   sharpen: { category:'detail', title:'Sharpen', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:0}],
-    (d,w,h,p)=>fxClaritySharpen(d,w,h,0,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:0},
+      {key:'radius',label:'Radius',type:'slider',min:1,max:5,step:1,default:1,unit:'px'},
+    ],
+    (d,w,h,p)=>fxClaritySharpen(d,w,h,0,p.amount,0,p.radius)) },
 
   blur: { category:'detail', title:'Blur', ...pixelType(
-    [{key:'radius',label:'Radius',type:'slider',min:0,max:60,step:1,default:0,unit:'px'}],
-    (d,w,h,p)=>fxGaussianBlur(d,w,h,p.radius)) },
+    [
+      {key:'radius',label:'Radius',type:'slider',min:0,max:60,step:1,default:0,unit:'px'},
+      {key:'mix',label:'Mix',type:'slider',min:0,max:100,step:1,default:100},
+    ],
+    (d,w,h,p)=>fxGaussianBlur(d,w,h,p.radius,p.mix)) },
 
   noiseReduction: { category:'detail', title:'Noise Reduction', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:0}],
-    (d,w,h,p)=>fxNoiseReduction(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:0},
+      {key:'radius',label:'Radius',type:'slider',min:1,max:15,step:1,default:4,unit:'px'},
+    ],
+    (d,w,h,p)=>fxNoiseReduction(d,w,h,p.amount,p.radius)) },
 
   highPass: { category:'detail', title:'High Pass', ...pixelType(
-    [{key:'radius',label:'Radius',type:'slider',min:1,max:40,step:1,default:8,unit:'px'}],
-    (d,w,h,p)=>fxHighPass(d,w,h,p.radius)) },
+    [
+      {key:'radius',label:'Radius',type:'slider',min:1,max:40,step:1,default:8,unit:'px'},
+      {key:'mix',label:'Mix',type:'slider',min:0,max:100,step:1,default:100},
+    ],
+    (d,w,h,p)=>fxHighPass(d,w,h,p.radius,p.mix)) },
 
   medianDenoise: { category:'detail', title:'Median Denoise', ...pixelType(
-    [{key:'radius',label:'Radius',type:'slider',min:0,max:3,step:1,default:1,unit:'px'}],
-    (d,w,h,p)=>fxMedianDenoise(d,w,h,p.radius)) },
+    [
+      {key:'radius',label:'Radius',type:'slider',min:0,max:3,step:1,default:1,unit:'px'},
+      {key:'mix',label:'Mix',type:'slider',min:0,max:100,step:1,default:100},
+    ],
+    (d,w,h,p)=>fxMedianDenoise(d,w,h,p.radius,p.mix)) },
 
   dehaze: { category:'detail', title:'Dehaze', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
-    (d,w,h,p)=>fxDehaze(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'brightness',label:'Brightness',type:'slider',min:-50,max:50,step:1,default:0},
+    ],
+    (d,w,h,p)=>fxDehaze(d,w,h,p.amount,p.brightness)) },
 
   // ---------------- DISTORT ----------------
   rgbSplit: { category:'distort', title:'RGB Split', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
-    (d,w,h,p)=>fxRgbSplit(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'angle',label:'Angle',type:'slider',min:0,max:360,step:1,default:0,unit:'°'},
+    ],
+    (d,w,h,p)=>fxRgbSplit(d,w,h,p.amount,p.angle)) },
 
   glitch: { category:'distort', title:'Glitch', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
-    (d,w,h,p)=>fxGlitch(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'seed',label:'Seed',type:'slider',min:0,max:999,step:1,default:42},
+    ],
+    (d,w,h,p)=>fxGlitch(d,w,h,p.amount,p.seed)) },
 
   pixelate: { category:'distort', title:'Pixelate', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
-    (d,w,h,p)=>fxPixelate(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'smooth',label:'Average color',type:'toggle',default:true},
+    ],
+    (d,w,h,p)=>fxPixelate(d,w,h,p.amount,p.smooth)) },
 
   posterize: { category:'distort', title:'Posterize', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
-    (d,w,h,p)=>fxPosterize(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'dither',label:'Dither',type:'toggle',default:false},
+    ],
+    (d,w,h,p)=>fxPosterize(d,w,h,p.amount,p.dither)) },
 
   solarize: { category:'distort', title:'Solarize', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
-    (d,w,h,p)=>fxSolarize(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'channel',label:'Channel',type:'select',options:['RGB','R','G','B'],default:'RGB'},
+    ],
+    (d,w,h,p)=>fxSolarize(d,p.amount,p.channel)) },
 
   neonEdges: { category:'distort', title:'Neon Edges', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
-    (d,w,h,p)=>fxNeonEdges(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'colorize',label:'Colorize',type:'toggle',default:true},
+    ],
+    (d,w,h,p)=>fxNeonEdges(d,w,h,p.amount,p.colorize)) },
 
   kaleidoscope: { category:'distort', title:'Kaleidoscope', ...pixelType(
-    [{key:'segments',label:'Segments',type:'slider',min:3,max:16,step:1,default:8}],
-    (d,w,h,p)=>fxKaleidoscope(d,w,h,p.segments)) },
+    [
+      {key:'segments',label:'Segments',type:'slider',min:3,max:16,step:1,default:8},
+      {key:'centerX',label:'Center X',type:'slider',min:0,max:100,step:1,default:50,unit:'%'},
+      {key:'centerY',label:'Center Y',type:'slider',min:0,max:100,step:1,default:50,unit:'%'},
+    ],
+    (d,w,h,p)=>fxKaleidoscope(d,w,h,p.segments,p.centerX,p.centerY)) },
 
   halftone: { category:'distort', title:'Halftone', ...pixelType(
     [
@@ -218,93 +294,132 @@ const NODE_TYPES = {
     (d,w,h,p)=>fxHalftone(d,w,h,p.cell,p.shape,p.colorMode)) },
 
   sketch: { category:'distort', title:'Sketch', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:70}],
-    (d,w,h,p)=>fxSketch(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:70},
+      {key:'invert',label:'Invert lines',type:'toggle',default:false},
+    ],
+    (d,w,h,p)=>fxSketch(d,w,h,p.amount,p.invert)) },
 
   thermal: { category:'distort', title:'Thermal', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:70}],
-    (d,w,h,p)=>fxThermal(d,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:70},
+      {key:'contrast',label:'Contrast',type:'slider',min:0,max:100,step:1,default:0},
+    ],
+    (d,w,h,p)=>fxThermal(d,p.amount,p.contrast)) },
 
   chromaticAberration: { category:'distort', title:'Chromatic Aberration', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40}],
-    (d,w,h,p)=>fxChromaticAberration(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'centerX',label:'Center X',type:'slider',min:0,max:100,step:1,default:50,unit:'%'},
+      {key:'centerY',label:'Center Y',type:'slider',min:0,max:100,step:1,default:50,unit:'%'},
+    ],
+    (d,w,h,p)=>fxChromaticAberration(d,w,h,p.amount,p.centerX,p.centerY)) },
 
   emboss: { category:'distort', title:'Emboss', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100}],
-    (d,w,h,p)=>fxEmboss(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
+      {key:'angle',label:'Angle',type:'slider',min:0,max:360,step:1,default:135,unit:'°'},
+    ],
+    (d,w,h,p)=>fxEmboss(d,w,h,p.amount,p.angle)) },
 
   oldFilm: { category:'distort', title:'Old Film', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:60}],
-    (d,w,h,p)=>fxOldFilm(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:60},
+      {key:'seed',label:'Seed',type:'slider',min:0,max:999,step:1,default:7},
+    ],
+    (d,w,h,p)=>fxOldFilm(d,w,h,p.amount,p.seed)) },
 
   waveWarp: { category:'distort', title:'Wave Warp', ...pixelType(
     [
       {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
       {key:'waves',label:'Waves',type:'slider',min:1,max:20,step:1,default:6},
+      {key:'direction',label:'Direction',type:'select',options:['Horizontal','Vertical'],default:'Horizontal'},
     ],
-    (d,w,h,p)=>fxWaveWarp(d,w,h,p.amount,p.waves)) },
+    (d,w,h,p)=>fxWaveWarp(d,w,h,p.amount,p.waves,p.direction)) },
 
   rainbow: { category:'distort', title:'Rainbow', ...pixelType(
     [
       {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
       {key:'bands',label:'Bands',type:'slider',min:1,max:12,step:1,default:4},
+      {key:'hueOffset',label:'Hue offset',type:'slider',min:0,max:360,step:1,default:0,unit:'°'},
     ],
-    (d,w,h,p)=>fxRainbow(d,w,h,p.amount,p.bands)) },
+    (d,w,h,p)=>fxRainbow(d,w,h,p.amount,p.bands,p.hueOffset)) },
 
   iridescent: { category:'distort', title:'Iridescent', ...pixelType(
     [
       {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
       {key:'threshold',label:'Threshold',type:'slider',min:5,max:150,step:1,default:30},
+      {key:'hueOffset',label:'Hue offset',type:'slider',min:0,max:360,step:1,default:0,unit:'°'},
     ],
-    (d,w,h,p)=>fxIridescent(d,w,h,p.amount,p.threshold)) },
+    (d,w,h,p)=>fxIridescent(d,w,h,p.amount,p.threshold,p.hueOffset)) },
 
   prismGlow: { category:'distort', title:'Prism Glow', ...pixelType(
     [
       {key:'threshold',label:'Threshold',type:'slider',min:0,max:100,step:1,default:70},
       {key:'amount',label:'Glow',type:'slider',min:0,max:100,step:1,default:60},
+      {key:'tintColor',label:'Tint',type:'color',default:'#ffffff'},
     ],
-    (d,w,h,p)=>fxPrismGlow(d,w,h,p.amount,p.threshold)) },
+    (d,w,h,p)=>fxPrismGlow(d,w,h,p.amount,p.threshold,p.tintColor)) },
 
   pixelSort: { category:'distort', title:'Pixel Sort', ...pixelType(
     [
       {key:'threshold',label:'Threshold',type:'slider',min:0,max:100,step:1,default:50},
       {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
+      {key:'direction',label:'Direction',type:'select',options:['Horizontal','Vertical'],default:'Horizontal'},
     ],
-    (d,w,h,p)=>fxPixelSort(d,w,h,p.amount,p.threshold)) },
+    (d,w,h,p)=>fxPixelSort(d,w,h,p.amount,p.threshold,p.direction)) },
 
   liquifyWarp: { category:'distort', title:'Liquify Warp', ...pixelType(
     [
       {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
       {key:'scale',label:'Scale',type:'slider',min:1,max:10,step:1,default:4},
+      {key:'seed',label:'Seed',type:'slider',min:0,max:999,step:1,default:0},
     ],
-    (d,w,h,p)=>fxLiquifyWarp(d,w,h,p.amount,p.scale)) },
+    (d,w,h,p)=>fxLiquifyWarp(d,w,h,p.amount,p.scale,p.seed)) },
 
   vortexTwist: { category:'distort', title:'Vortex Twist', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:50}],
-    (d,w,h,p)=>fxVortexTwist(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:50},
+      {key:'centerX',label:'Center X',type:'slider',min:0,max:100,step:1,default:50,unit:'%'},
+      {key:'centerY',label:'Center Y',type:'slider',min:0,max:100,step:1,default:50,unit:'%'},
+    ],
+    (d,w,h,p)=>fxVortexTwist(d,w,h,p.amount,p.centerX,p.centerY)) },
 
   dither: { category:'distort', title:'Dither', ...pixelType(
-    [{key:'levels',label:'Levels',type:'slider',min:2,max:8,step:1,default:4}],
-    (d,w,h,p)=>fxDither(d,w,h,p.levels)) },
+    [
+      {key:'levels',label:'Levels',type:'slider',min:2,max:8,step:1,default:4},
+      {key:'colorMode',label:'Mode',type:'select',options:['Mono','Color'],default:'Mono'},
+    ],
+    (d,w,h,p)=>fxDither(d,w,h,p.levels,p.colorMode)) },
 
   // ---------------- FINISH ----------------
   vignette: {
     category:'finish', title:'Vignette', inputs:['Image'], outputs:['Image'],
-    params:[{key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:40}],
+    params:[
+      {key:'amount',label:'Amount',type:'slider',min:-100,max:100,step:1,default:40},
+      {key:'feather',label:'Feather',type:'slider',min:10,max:80,step:1,default:35,unit:'%'},
+      {key:'color',label:'Color',type:'color',default:'#000000'},
+    ],
     compute(ins,p){
       const src=ins[0]; if(!src) return null; const out=cloneCanvas(src);
       if(!p.amount) return out;
       const octx=out.getContext('2d'); const w=out.width,h=out.height,cx=w/2,cy=h/2;
-      const outerR=Math.sqrt(cx*cx+cy*cy), innerR=outerR*0.35;
+      const outerR=Math.sqrt(cx*cx+cy*cy), innerR=outerR*((p.feather==null?35:p.feather)/100);
       const grad=octx.createRadialGradient(cx,cy,innerR,cx,cy,outerR); const strength=Math.abs(p.amount)/100;
-      if(p.amount>0){ grad.addColorStop(0,'rgba(0,0,0,0)'); grad.addColorStop(1,`rgba(0,0,0,${strength*0.85})`); }
-      else { grad.addColorStop(0,'rgba(255,255,255,0)'); grad.addColorStop(1,`rgba(255,255,255,${strength*0.7})`); }
+      if(p.amount>0){
+        const c=hexToRgb(p.color||'#000000');
+        grad.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},0)`); grad.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},${strength*0.85})`);
+      } else { grad.addColorStop(0,'rgba(255,255,255,0)'); grad.addColorStop(1,`rgba(255,255,255,${strength*0.7})`); }
       octx.fillStyle=grad; octx.fillRect(0,0,w,h); return out;
     }
   },
   grain: { category:'finish', title:'Grain', ...pixelType(
-    [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:35}],
-    (d,w,h,p)=>fxFilmGrain(d,w,h,p.amount)) },
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:35},
+      {key:'size',label:'Size',type:'slider',min:1,max:6,step:1,default:2,unit:'px'},
+      {key:'seed',label:'Seed',type:'slider',min:0,max:999,step:1,default:1},
+    ],
+    (d,w,h,p)=>fxFilmGrain(d,w,h,p.amount,p.seed,p.size)) },
 
   frame: {
     category:'finish', title:'Frame', inputs:['Image'], outputs:['Image'],
@@ -482,13 +597,15 @@ const NODE_TYPES = {
     params:[
       {key:'amount',label:'Contrast',type:'slider',min:0,max:100,step:1,default:100},
       {key:'colorMode',label:'Type',type:'select',options:['mono','color'],default:'mono'},
+      {key:'seed',label:'Seed',type:'slider',min:0,max:999,step:1,default:0},
     ],
     compute(ins,p){
       const out=document.createElement('canvas'); out.width=projectSize.w; out.height=projectSize.h;
       const octx=out.getContext('2d'); const id=octx.createImageData(out.width,out.height); const amt=(p.amount||100)/100;
+      const rand=makeRng(p.seed==null?0:p.seed);
       for(let i=0;i<id.data.length;i+=4){
-        if(p.colorMode==='color'){ id.data[i]=Math.random()*255*amt; id.data[i+1]=Math.random()*255*amt; id.data[i+2]=Math.random()*255*amt; }
-        else { const v=Math.random()*255*amt; id.data[i]=v; id.data[i+1]=v; id.data[i+2]=v; }
+        if(p.colorMode==='color'){ id.data[i]=rand()*255*amt; id.data[i+1]=rand()*255*amt; id.data[i+2]=rand()*255*amt; }
+        else { const v=rand()*255*amt; id.data[i]=v; id.data[i+1]=v; id.data[i+2]=v; }
         id.data[i+3]=255;
       }
       octx.putImageData(id,0,0); return out;
@@ -519,12 +636,14 @@ const NODE_TYPES = {
       {key:'cells',label:'Cells',type:'slider',min:2,max:60,step:1,default:14},
       {key:'colorA',label:'Color A',type:'color',default:'#161617'},
       {key:'colorB',label:'Color B',type:'color',default:'#3f8cff'},
+      {key:'seed',label:'Seed',type:'slider',min:0,max:999,step:1,default:0},
     ],
     compute(ins,p){
       const w=projectSize.w, h=projectSize.h;
       const out=document.createElement('canvas'); out.width=w; out.height=h; const octx=out.getContext('2d');
       const n=Math.max(2,p.cells||14);
-      const pts=[]; for(let i=0;i<n;i++) pts.push({x:Math.random()*w, y:Math.random()*h});
+      const rand=makeRng(p.seed==null?0:p.seed);
+      const pts=[]; for(let i=0;i<n;i++) pts.push({x:rand()*w, y:rand()*h});
       const ca=hexToRgb(p.colorA), cb=hexToRgb(p.colorB);
       const id=octx.createImageData(w,h); const norm=(Math.min(w,h)*0.5)||1;
       for(let y=0;y<h;y++){

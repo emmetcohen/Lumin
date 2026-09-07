@@ -10,6 +10,27 @@ function closeModal(result){
   overlay.hidden=true; overlay.innerHTML='';
   if(modalResolve){ const r=modalResolve; modalResolve=null; r(result); }
 }
+const SHORTCUTS=[
+  ['Ctrl/Cmd+Z','Undo'], ['Ctrl/Cmd+Shift+Z','Redo'], ['Ctrl/Cmd+D','Duplicate selected nodes'],
+  ['Ctrl/Cmd+C','Copy selected nodes'], ['Ctrl/Cmd+V','Paste nodes (works across tabs)'],
+  ['Delete / Backspace','Delete selected node or link'], ['M','Mute/bypass selected nodes'],
+  ['\\','Toggle split-view compare'], ['Shift+drag','Box-select on empty canvas'],
+  ['Alt+drag or click','Apply a control to every selected node of that type'],
+  ['Arrow keys','Nudge a focused slider (Shift for ×10)'], ['Tab','Move focus between nodes'],
+  ['Esc','Close a dialog, or cancel color picking'], ['?','Show this help'],
+];
+function showShortcutsHelp(){
+  const overlay=document.getElementById('modalOverlay'); overlay.hidden=false;
+  overlay.innerHTML=`
+    <div class="modal-box modal-wide">
+      <div class="modal-title">Keyboard shortcuts</div>
+      <div class="shortcuts-list">${SHORTCUTS.map(([k,d])=>`<div><kbd>${k}</kbd><span>${d}</span></div>`).join('')}</div>
+      <div class="modal-actions"><button class="btn" id="closeShortcutsBtn">Close</button></div>
+    </div>`;
+  overlay.querySelector('#closeShortcutsBtn').addEventListener('click', ()=>closeModal(null));
+  overlay.onmousedown = (e)=>{ if(e.target===overlay) closeModal(null); };
+}
+
 document.addEventListener('keydown', e=>{
   const overlay=document.getElementById('modalOverlay');
   if(e.key==='Escape' && overlay && !overlay.hidden) closeModal(null);

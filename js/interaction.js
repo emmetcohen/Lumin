@@ -217,6 +217,7 @@ document.addEventListener('keydown',(e)=>{
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='v'){
     e.preventDefault(); pasteFromClipboard();
   }
+  if(e.key==='?'){ e.preventDefault(); showShortcutsHelp(); }
 });
 
 /* ---- touch: single-finger pan/drag-node/drag-wire, two-finger pinch-zoom.
