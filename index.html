@@ -1338,7 +1338,7 @@ function renderNode(node){
 
   if(type.special==='image-source'){
     const thumb=document.createElement('div'); thumb.className='node-thumb';
-    if(node._thumbUrl){ thumb.innerHTML=`<img src="${node._thumbUrl}">`; }
+    if(node._thumbUrl){ thumb.innerHTML=''; const thumbImg=document.createElement('img'); thumbImg.src=node._thumbUrl; thumb.appendChild(thumbImg); }
     else { thumb.innerHTML=`<div class="ph">No photo loaded</div>`; }
     body.appendChild(thumb);
     const btn=document.createElement('div'); btn.className='file-btn'; btn.textContent=node._thumbUrl? 'Replace photo' : 'Choose photo…';
@@ -1469,6 +1469,7 @@ let imageAssets = {};
 document.getElementById('fileInput').addEventListener('change', (e)=>{
   const file=e.target.files[0]; if(!file || !pendingImageNodeId) return;
   const node=nodes[pendingImageNodeId]; if(!node) return;
+  const prevUrl=node._thumbUrl;
   const url=URL.createObjectURL(file);
   const img=new Image();
   img.onload=()=>{
@@ -1477,12 +1478,14 @@ document.getElementById('fileInput').addEventListener('change', (e)=>{
     const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
     node._src=c; node._thumbUrl=url; node._dirty=true;
     imageAssets[node.id] = { src:c, thumbUrl:url };
+    if(prevUrl) URL.revokeObjectURL(prevUrl);
     projectSize={w,h};
     markDirtyForward(node.id);
     renderNode(node);
     scheduleEval();
     showToast('Photo loaded into '+node.title);
   };
+  img.onerror=()=>{ URL.revokeObjectURL(url); showToast('Could not load that image'); };
   img.src=url;
   e.target.value='';
 });
