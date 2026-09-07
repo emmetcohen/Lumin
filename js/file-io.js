@@ -16,17 +16,31 @@ document.getElementById('fileInput').addEventListener('change', (e)=>{
   const url=URL.createObjectURL(file);
   const img=new Image();
   img.onload=()=>{
-    let w=img.naturalWidth, h=img.naturalHeight; const scale=Math.min(1, MAX_DIM/Math.max(w,h));
-    w=Math.round(w*scale); h=Math.round(h*scale);
+    const naturalW=img.naturalWidth, naturalH=img.naturalHeight;
+    const scale=Math.min(1, MAX_DIM/Math.max(naturalW,naturalH));
+    const w=Math.round(naturalW*scale), h=Math.round(naturalH*scale);
     const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
     node._src=c; node._thumbUrl=url; node._dirty=true;
-    imageAssets[node.id] = { src:c, thumbUrl:url };
+    // Editing runs on this downscaled proxy for interactive performance, but a
+    // full-resolution copy is kept alongside so Export can offer a full-size
+    // render — see exportFullRes() in dialogs.js. Only kept for this session:
+    // it isn't persisted in saved projects (that would bloat the JSON file
+    // hugely), so a reloaded project only has the working-resolution copy.
+    if(scale<1){
+      const full=document.createElement('canvas'); full.width=naturalW; full.height=naturalH;
+      full.getContext('2d').drawImage(img,0,0);
+      node._fullSrc=full;
+      showToast('Photo loaded at '+w+'×'+h+' for editing (original is '+naturalW+'×'+naturalH+' — full size available on export)');
+    } else {
+      node._fullSrc=null;
+      showToast('Photo loaded into '+node.title);
+    }
+    imageAssets[node.id] = { src:c, thumbUrl:url, fullSrc:node._fullSrc };
     if(prevUrl) URL.revokeObjectURL(prevUrl);
     projectSize={w,h};
     markDirtyForward(node.id);
     renderNode(node);
     scheduleEval();
-    showToast('Photo loaded into '+node.title);
   };
   img.onerror=()=>{ URL.revokeObjectURL(url); showToast('Could not load that image'); };
   img.src=url;
@@ -68,7 +82,11 @@ function loadProjectData(json){
       params:nd.params, _src:null, _cache:null, _dirty:true, _thumbUrl:null };
     nodes[nd.id]=node;
     if(nd.id.match(/^n(\d+)$/)) nextId=Math.max(nextId, parseInt(RegExp.$1,10)+1);
-    if(nd.imageData){
+    // Only accept an actual embedded data: image URI — a project file is
+    // untrusted input, and assigning an arbitrary string straight to img.src
+    // would let a crafted file point the browser at a third-party URL and
+    // silently leak the viewer's IP/user-agent to it.
+    if(nd.imageData && /^data:image\//i.test(nd.imageData)){
       pending++;
       const img=new Image();
       img.onload=()=>{
@@ -78,14 +96,16 @@ function loadProjectData(json){
       };
       img.onerror=()=>{ pending--; finishIfDone(); };
       img.src=nd.imageData;
+    } else if(nd.imageData){
+      showToast('Skipped an invalid image embedded in that project file');
     }
   });
   Object.values(nodes).forEach(n=>renderNode(n));
   finishIfDone();
 }
 document.getElementById('saveProjectBtn').addEventListener('click', doSaveProject);
-document.getElementById('loadProjectBtn').addEventListener('click', ()=>{
-  if(Object.keys(nodes).length && !confirm('Load a project? This replaces your current graph (autosave of the current graph is kept until you load).')) return;
+document.getElementById('loadProjectBtn').addEventListener('click', async ()=>{
+  if(Object.keys(nodes).length && !(await showConfirm('Load a project? This replaces your current graph (autosave of the current graph is kept until you load).'))) return;
   document.getElementById('projectFileInput').click();
 });
 document.getElementById('projectFileInput').addEventListener('change', (e)=>{
@@ -96,13 +116,25 @@ document.getElementById('projectFileInput').addEventListener('change', (e)=>{
   e.target.value='';
 });
 
-/* ---- autosave to localStorage, so a refresh or closed tab never loses work ---- */
+/* ---- autosave to localStorage, so a refresh or closed tab never loses work ----
+   This is one shared key on purpose — it's what lets a *closed* tab recover
+   its last session on reopen. The tradeoff is two tabs open at once will
+   overwrite each other's autosave; rather than silently losing that, the
+   'storage' listener below warns you the moment another tab does it. */
+const AUTOSAVE_KEY='lumin-autosave-v1';
 let autosaveTimer=null;
+let savingAutosave=false;
 function scheduleAutosave(){
   clearTimeout(autosaveTimer);
   autosaveTimer=setTimeout(()=>{
-    try{ localStorage.setItem('lumin-autosave-v1', serializeProjectFull()); }
+    try{ savingAutosave=true; localStorage.setItem(AUTOSAVE_KEY, serializeProjectFull()); }
     catch(err){ /* storage full/blocked — silently skip, nothing else we can do */ }
+    finally{ savingAutosave=false; }
   }, 700);
 }
+window.addEventListener('storage', (e)=>{
+  if(e.key===AUTOSAVE_KEY && !savingAutosave){
+    showToast('Another open Lumin tab just saved over the shared autosave — reload here before closing this tab if you want to keep this version');
+  }
+});
 

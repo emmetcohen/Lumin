@@ -513,7 +513,23 @@ function removeNode(id){
   selectedNodeIds.delete(id);
   scheduleEval();
 }
+// Would connecting fromId -> toId create a cycle? True if toId can already
+// reach fromId by following existing links forward.
+function wouldCreateCycle(fromId, toId){
+  if(fromId===toId) return true;
+  const seen=new Set(); const stack=[toId];
+  while(stack.length){
+    const cur=stack.pop(); if(cur===fromId) return true;
+    if(seen.has(cur)) continue; seen.add(cur);
+    links.filter(l=>l.from===cur).forEach(l=>stack.push(l.to));
+  }
+  return false;
+}
 function addLink(fromId,fromSock,toId,toSock,record){
+  if(wouldCreateCycle(fromId,toId)){
+    if(typeof showToast==='function') showToast('Can\'t connect — that would create a loop');
+    return null;
+  }
   // one link per input socket
   links = links.filter(l=>!(l.to===toId && l.toSock===toSock));
   const id=uid('l');
@@ -561,8 +577,21 @@ function evaluateNode(id, visiting){
   let result=null;
   if(node.muted && type.inputs.length && type.outputs.length===1){
     result = inputCanvases[0] || null; // bypassed: pass the first input straight through
+    node._error=null;
   } else {
-    try{ result = type.compute(inputCanvases, node.params, node); }catch(e){ console.error('node compute error', node.type, e); result=null; }
+    try{
+      result = type.compute(inputCanvases, node.params, node);
+      if(node._error){ node._error=null; renderNode(node); }
+    }catch(e){
+      console.error('node compute error', node.type, e);
+      const message = e && e.message ? e.message : String(e);
+      const isNewError = node._error!==message;
+      node._error=message; result=null;
+      if(isNewError){
+        if(typeof showToast==='function') showToast(node.title+' hit an error — hover its badge for details');
+        renderNode(node);
+      }
+    }
   }
   node._cache=result; node._dirty=false;
   visiting.delete(id);
@@ -572,16 +601,31 @@ function evaluateNode(id, visiting){
 let evalScheduled=false;
 function scheduleEval(){
   if(evalScheduled) return; evalScheduled=true;
-  requestAnimationFrame(()=>{ evalScheduled=false; runEvaluation(); });
+  const indicator=document.getElementById('computingIndicator'); if(indicator) indicator.hidden=false;
+  // Evaluation is synchronous and can be slow on a heavy graph — wait one extra
+  // frame after showing the indicator so the browser actually gets to paint it
+  // before the main thread blocks on the real computation.
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      evalScheduled=false; runEvaluation();
+      if(indicator) indicator.hidden=true;
+    });
+  });
 }
 function runEvaluation(){
+  // previewPinId (declared in render.js) lets you preview any node's output
+  // without touching the real Output node's wiring — Export always uses the
+  // real outputNodeId regardless of what's pinned.
+  const targetId = (typeof previewPinId!=='undefined' && previewPinId && nodes[previewPinId]) ? previewPinId : outputNodeId;
   let outCanvas=null;
-  if(outputNodeId && nodes[outputNodeId]){
-    outCanvas = evaluateNode(outputNodeId);
+  if(targetId && nodes[targetId]){
+    const val = evaluateNode(targetId);
+    const t = NODE_TYPES[nodes[targetId].type];
+    outCanvas = (t.outputs.length>1) ? ((val && val[t.outputs[0]]) || null) : val;
   }
   if(compareMode){
     const original=findFirstImageSource();
-    updatePreview(original || outCanvas, !!original);
+    updatePreviewSplit(original, outCanvas);
   } else {
     updatePreview(outCanvas, false);
   }

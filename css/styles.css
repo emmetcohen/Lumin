@@ -238,9 +238,26 @@
   .preview-head{ padding:11px 14px 9px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
   .preview-head .t{ font-size:12.5px; font-weight:600; }
   .preview-head .sub{ font-size:10.5px; color:var(--text-faint); margin-top:2px; }
-  .preview-stage{ flex:1; display:flex; align-items:center; justify-content:center; padding:16px; min-height:0; }
+  .preview-stage{ flex:1; position:relative; min-height:0; }
+  /* previewContent is what render.js rewrites on every viewer update — the
+     computing indicator and the compare-divider are siblings of it instead of
+     children, so they survive those rewrites instead of being wiped each time. */
+  .preview-content{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; }
   .preview-stage canvas{ max-width:100%; max-height:100%; border-radius:6px; box-shadow:0 4px 22px rgba(0,0,0,0.5); background:#0b0b0c; }
   .preview-empty{ color:var(--text-faint); font-size:12px; text-align:center; padding:0 20px; line-height:1.6; }
+  .computing-indicator{
+    position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:5;
+    background:rgba(0,0,0,0.65); color:var(--text); font-size:10.5px; padding:4px 10px;
+    border-radius:20px; border:1px solid var(--border); pointer-events:none;
+  }
+  .compare-divider{ position:absolute; top:0; bottom:0; width:2px; background:var(--accent); cursor:col-resize; z-index:4; transform:translateX(-50%); }
+  .compare-divider-handle{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:26px; height:26px;
+    border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
+    font-size:13px; box-shadow:0 2px 8px rgba(0,0,0,0.5);
+  }
+  .histogram-wrap{ padding:0 14px 10px; }
+  .histogram{ width:100%; height:70px; display:block; background:#0b0b0c; border-radius:6px; border:1px solid var(--border-soft); }
   .preview-foot{ padding:12px 14px 14px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
   .preview-foot .hint{ font-size:10.5px; color:var(--text-faint); line-height:1.5; }
 
@@ -290,6 +307,64 @@
     opacity:0; transition:opacity .2s ease; pointer-events:none;
   }
   .toast.show{ opacity:1; }
+
+  /* node error badge — shown in the header when a node's compute() throws */
+  .node.node-error{ border-color:var(--danger); }
+  .node-error-badge{
+    width:16px; height:16px; border-radius:50%; background:var(--danger); color:#fff;
+    font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; cursor:help;
+  }
+
+  /* pin-to-viewer button — preview any node's output without rewiring Output */
+  .node-pin{
+    width:16px; height:16px; border-radius:4px; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.22); color:rgba(255,255,255,0.85); font-size:11px; cursor:pointer; flex-shrink:0;
+  }
+  .node-pin:hover{ background:rgba(0,0,0,0.4); }
+  .node-pin.active{ background:var(--accent); color:#fff; }
+
+  /* keyboard-focus visibility for the newly-focusable controls (nodes, sliders,
+     icon buttons) — mouse users never see this, :focus-visible skips it for them */
+  .node:focus-visible, .bslider:focus-visible, .node-mute:focus-visible, .node-del:focus-visible, .node-pin:focus-visible{
+    outline:2px solid var(--accent); outline-offset:2px;
+  }
+
+  /* ---- modal dialogs (replaces native confirm()/prompt()) ---- */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .modal-box{
+    background:var(--panel-2); border:1px solid var(--border); border-radius:10px;
+    padding:20px; width:320px; max-width:calc(100vw - 40px); box-shadow:0 12px 40px rgba(0,0,0,0.5);
+  }
+  .modal-box.modal-wide{ width:420px; }
+  .modal-title{ font-size:14px; font-weight:600; margin-bottom:14px; }
+  .modal-msg{ font-size:12.5px; color:var(--text); line-height:1.5; margin-bottom:16px; }
+  .modal-input{
+    width:100%; background:var(--panel-3); border:1px solid var(--border); color:var(--text);
+    border-radius:6px; padding:8px 10px; font-size:12.5px; margin-bottom:16px; outline:none;
+  }
+  .modal-input:focus{ border-color:var(--accent); }
+  .modal-field{ margin-bottom:14px; }
+  .modal-field label{ display:block; font-size:11px; color:var(--text-dim); margin-bottom:5px; }
+  .modal-select{
+    width:100%; background:var(--panel-3); border:1px solid var(--border); color:var(--text);
+    border-radius:6px; padding:7px 8px; font-size:12.5px; outline:none;
+  }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; }
+  .modal-actions-top{ justify-content:flex-start; margin-bottom:14px; }
+  .modal-empty{ color:var(--text-faint); font-size:12px; text-align:center; padding:20px 0; }
+  .btn-danger{ color:var(--danger); }
+  .btn-danger:hover{ background:rgba(229,85,74,0.15); border-color:var(--danger); }
+
+  .projects-list{ max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+  .project-row{
+    display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--panel-3);
+    border:1px solid var(--border-soft); border-radius:7px;
+  }
+  .project-name{ flex:1; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   @media (max-width: 900px){
     .palette{ width:190px; }

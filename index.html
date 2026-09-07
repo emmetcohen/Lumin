@@ -22,8 +22,9 @@
       <div class="divider-v"></div>
       <button class="btn" id="saveProjectBtn" title="Save project as .json">⬇ Save project</button>
       <button class="btn" id="loadProjectBtn" title="Load project from .json">⬆ Load project</button>
+      <button class="btn" id="projectsBtn" title="Named projects saved in this browser">Projects</button>
       <div class="divider-v"></div>
-      <button class="btn btn-accent" id="exportBtn">Export PNG</button>
+      <button class="btn btn-accent" id="exportBtn">Export…</button>
     </div>
   </div>
 
@@ -52,16 +53,23 @@
         <button class="btn btn-icon" id="addBtn" title="Add node">+ Add</button>
       </div>
       <div class="preview-stage" id="previewStage">
-        <div class="preview-empty">Nothing to show yet. Add an <b>Image</b> node and an <b>Output</b> node, then connect them.</div>
+        <div class="preview-content" id="previewContent">
+          <div class="preview-empty">Nothing to show yet. Add an <b>Image</b> node and an <b>Output</b> node, then connect them.</div>
+        </div>
+        <div class="computing-indicator" id="computingIndicator" hidden>Computing…</div>
+      </div>
+      <div class="histogram-wrap">
+        <canvas id="histogramCanvas" class="histogram" width="240" height="70"></canvas>
       </div>
       <div class="preview-foot">
-        <button class="btn" id="compareBtn" style="justify-content:center;" title="Toggle original vs. edited (\)">⇄ Compare original</button>
-        <button class="btn btn-accent" id="exportBtn2" style="justify-content:center;">Export PNG</button>
-        <div class="hint">The viewer shows whatever is wired into the Output node's input, live. Shift+drag on the canvas box-selects multiple nodes; Ctrl+D duplicates; M mutes.</div>
+        <button class="btn" id="compareBtn" style="justify-content:center;" title="Toggle split-view compare with the original (\)">⇄ Compare original</button>
+        <button class="btn btn-accent" id="exportBtn2" style="justify-content:center;">Export…</button>
+        <div class="hint">Shift+drag box-selects; Ctrl+D duplicates; Ctrl+C/V copies nodes (works across tabs); M mutes; Alt+drag a control to apply it to every selected node of that type; ◎ on a node previews it in the Viewer without rewiring Output.</div>
       </div>
     </div>
   </div>
 
+  <div class="modal-overlay" id="modalOverlay" hidden></div>
   <div class="toast" id="toast"></div>
   <input type="file" id="fileInput" accept="image/*" style="display:none;">
   <input type="file" id="projectFileInput" accept="application/json,.json" style="display:none;">
@@ -73,6 +81,7 @@
 <script src="js/file-io.js"></script>
 <script src="js/palette.js"></script>
 <script src="js/interaction.js"></script>
+<script src="js/dialogs.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
