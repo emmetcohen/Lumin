@@ -282,7 +282,7 @@ function renderNode(node){
   const header=document.createElement('div'); header.className='node-header'; header.style.background=cat.color;
   const titleSpan=document.createElement('span'); titleSpan.className='n-title'; titleSpan.textContent=node.title;
   titleSpan.title='Double-click to rename';
-  titleSpan.addEventListener('mousedown', e=>e.stopPropagation());
+  titleSpan.addEventListener('mousedown', (e)=>startNodeDrag(e,node));
   titleSpan.addEventListener('dblclick', (e)=>{
     e.stopPropagation();
     const input=document.createElement('input'); input.className='n-title-edit'; input.value=node.title;
