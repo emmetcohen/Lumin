@@ -108,6 +108,40 @@ function fxContrast(d,amount){
   if(!amount) return; const c255=amount*2.55; const f=(259*(c255+255))/(255*(259-c255));
   for(let i=0;i<d.length;i+=4){ d[i]=clampByte(f*(d[i]-128)+128); d[i+1]=clampByte(f*(d[i+1]-128)+128); d[i+2]=clampByte(f*(d[i+2]-128)+128); }
 }
+function fxGamma(d,amount){
+  const gamma=(amount==null?100:amount)/100; if(gamma===1) return;
+  const inv=1/gamma; const lut=new Uint8ClampedArray(256);
+  for(let i=0;i<256;i++) lut[i]=clampByte(255*Math.pow(i/255, inv));
+  for(let i=0;i<d.length;i+=4){ d[i]=lut[d[i]]; d[i+1]=lut[d[i+1]]; d[i+2]=lut[d[i+2]]; }
+}
+function fxClamp(d,low,high){
+  const lo=(low==null?0:low)*2.55, hi=(high==null?100:high)*2.55; if(lo<=0 && hi>=255) return;
+  for(let i=0;i<d.length;i+=4){
+    d[i]=clampByte(Math.min(hi,Math.max(lo,d[i]))); d[i+1]=clampByte(Math.min(hi,Math.max(lo,d[i+1]))); d[i+2]=clampByte(Math.min(hi,Math.max(lo,d[i+2])));
+  }
+}
+// Per-channel binary arithmetic between two equal-length RGBA buffers,
+// written into `da` in place — the Math node's engine (distinct from Mix's
+// alpha-blended blend modes: this is literal, unclamped-until-the-end math).
+function fxMathOp(da,db,op){
+  for(let i=0;i<da.length;i+=4){
+    for(let c=0;c<3;c++){
+      const a=da[i+c], b=db[i+c]; let v;
+      switch(op){
+        case 'Subtract': v=a-b; break;
+        case 'Multiply': v=(a*b)/255; break;
+        case 'Divide': v=b===0?255:(a/b)*255; break;
+        case 'Min': v=Math.min(a,b); break;
+        case 'Max': v=Math.max(a,b); break;
+        case 'Difference': v=Math.abs(a-b); break;
+        case 'Average': v=(a+b)/2; break;
+        case 'Screen': v=255-((255-a)*(255-b))/255; break;
+        default: v=a+b; // Add
+      }
+      da[i+c]=clampByte(v);
+    }
+  }
+}
 function fxLevels(d,p){
   const hlAmt=(p.highlights||0)/100*70, shAmt=(p.shadows||0)/100*70, whAmt=(p.whites||0)/100*90, blAmt=(p.blacks||0)/100*90;
   if(!hlAmt&&!shAmt&&!whAmt&&!blAmt) return;
@@ -181,6 +215,102 @@ function fxRainbow(d,width,height,amount,bandsIn){
     const c=hueToRgb(lum*bands*360); const shade=0.35+0.65*lum;
     const tr=c[0]*shade, tg=c[1]*shade, tb=c[2]*shade;
     d[i]=clampByte(d[i]+(tr-d[i])*amt); d[i+1]=clampByte(d[i+1]+(tg-d[i+1])*amt); d[i+2]=clampByte(d[i+2]+(tb-d[i+2])*amt);
+  }
+}
+// Tints edges by the *direction* of their brightness gradient rather than its
+// magnitude — a Sobel angle mapped onto the rainbow wheel — so the color sheen
+// shifts as a surface's contours turn, like an oil slick or holographic foil.
+// Flat regions have no reliable gradient direction, so edge strength gates how
+// much color shows through, leaving them close to the original image.
+function fxIridescent(d,width,height,amount,thresholdIn){
+  const amt=(amount==null?100:amount)/100; if(!amt) return;
+  const threshold=thresholdIn==null?30:thresholdIn;
+  const src=new Uint8ClampedArray(d);
+  const lum=new Float32Array(width*height);
+  for(let i=0,p=0;i<src.length;i+=4,p++) lum[p]=0.299*src[i]+0.587*src[i+1]+0.114*src[i+2];
+  for(let y=0;y<height;y++){ const ym=Math.max(0,y-1), yp=Math.min(height-1,y+1);
+    for(let x=0;x<width;x++){ const xm=Math.max(0,x-1), xp=Math.min(width-1,x+1);
+      const tl=lum[ym*width+xm], tc=lum[ym*width+x], tr=lum[ym*width+xp];
+      const ml=lum[y*width+xm], mr=lum[y*width+xp];
+      const bl=lum[yp*width+xm], bc=lum[yp*width+x], br=lum[yp*width+xp];
+      const gx=(tr+2*mr+br)-(tl+2*ml+bl), gy=(bl+2*bc+br)-(tl+2*tc+tr);
+      const mag=Math.sqrt(gx*gx+gy*gy);
+      const angle=Math.atan2(gy,gx)*180/Math.PI+180;
+      const c=hueToRgb(angle);
+      const weight=amt*Math.min(1,mag/threshold);
+      const idx=(y*width+x)*4;
+      d[idx]=clampByte(src[idx]+(c[0]-src[idx])*weight);
+      d[idx+1]=clampByte(src[idx+1]+(c[1]-src[idx+1])*weight);
+      d[idx+2]=clampByte(src[idx+2]+(c[2]-src[idx+2])*weight);
+    }
+  }
+}
+// Blooms the brightest areas outward with a slight R/B spatial offset, like
+// light scattering through a prism — a soft rainbow-fringed halo around
+// highlights rather than a full-frame recolor.
+function fxPrismGlow(d,width,height,amount,thresholdIn){
+  const amt=(amount==null?100:amount)/100; if(!amt) return;
+  const thr=(thresholdIn==null?70:thresholdIn)/100*255;
+  const n=width*height; const bright=new Float32Array(n);
+  for(let i=0,p=0;i<d.length;i+=4,p++){ const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; bright[p]=Math.max(0,lum-thr); }
+  const radius=Math.max(3,Math.round(Math.min(width,height)*0.03));
+  const glow=boxBlur1(bright,width,height,radius);
+  const offset=Math.max(1,Math.round(Math.min(width,height)*0.01));
+  for(let y=0;y<height;y++){ const rowBase=y*width;
+    for(let x=0;x<width;x++){
+      const idx=(rowBase+x)*4;
+      const rx=Math.min(width-1,Math.max(0,x-offset)), bx=Math.min(width-1,Math.max(0,x+offset));
+      d[idx]=clampByte(d[idx]+glow[rowBase+rx]*amt);
+      d[idx+1]=clampByte(d[idx+1]+glow[rowBase+x]*amt);
+      d[idx+2]=clampByte(d[idx+2]+glow[rowBase+bx]*amt);
+    }
+  }
+}
+// Classic glitch-art pixel sort: within each row, contiguous runs of pixels
+// brighter than the threshold are sorted ascending by luminance, producing
+// streaky, melting trails wherever the source image is bright.
+function fxPixelSort(d,width,height,amount,thresholdIn){
+  if(!amount) return; const amt=amount/100; const thr=(thresholdIn==null?50:thresholdIn)/100*255;
+  const src=new Uint8ClampedArray(d);
+  const lumAt=(rowBase,px)=>0.299*src[rowBase+px*4]+0.587*src[rowBase+px*4+1]+0.114*src[rowBase+px*4+2];
+  for(let y=0;y<height;y++){
+    const rowBase=y*width*4; let x=0;
+    while(x<width){
+      if(lumAt(rowBase,x)>thr){
+        let xEnd=x+1; while(xEnd<width && lumAt(rowBase,xEnd)>thr) xEnd++;
+        const runLen=xEnd-x;
+        if(runLen>1){
+          const order=[]; for(let k=0;k<runLen;k++) order.push(x+k);
+          order.sort((pa,pb)=>lumAt(rowBase,pa)-lumAt(rowBase,pb));
+          for(let k=0;k<runLen;k++){
+            const sIdx=rowBase+order[k]*4, dIdx=rowBase+(x+k)*4;
+            d[dIdx]=clampByte(src[dIdx]+(src[sIdx]-src[dIdx])*amt);
+            d[dIdx+1]=clampByte(src[dIdx+1]+(src[sIdx+1]-src[dIdx+1])*amt);
+            d[dIdx+2]=clampByte(src[dIdx+2]+(src[sIdx+2]-src[dIdx+2])*amt);
+          }
+        }
+        x=xEnd;
+      } else x++;
+    }
+  }
+}
+// Organic 2D flow warp: each pixel samples from a spot displaced by a sum of
+// a few offset sine waves, giving a smoother, swirlier ripple than Wave
+// Warp's single per-row sine shift.
+function fxLiquifyWarp(d,width,height,amount,scaleIn){
+  if(!amount) return; const src=new Uint8ClampedArray(d);
+  const amp=(amount/100)*Math.min(width,height)*0.04;
+  const freq=(scaleIn||4)/4; const s=Math.min(width,height)||1;
+  for(let y=0;y<height;y++){
+    for(let x=0;x<width;x++){
+      const nx=(x/s)*freq, ny=(y/s)*freq;
+      const dx=(Math.sin(ny*12+1.3)+Math.sin(nx*7+ny*5+4.1)*0.5)*amp;
+      const dy=(Math.sin(nx*10+2.7)+Math.sin(ny*6+nx*4+0.6)*0.5)*amp;
+      const sx=Math.min(width-1,Math.max(0,Math.round(x+dx)));
+      const sy=Math.min(height-1,Math.max(0,Math.round(y+dy)));
+      const idx=(y*width+x)*4, sIdx=(sy*width+sx)*4;
+      d[idx]=src[sIdx]; d[idx+1]=src[sIdx+1]; d[idx+2]=src[sIdx+2];
+    }
   }
 }
 function fxColorRamp(d,stopsIn,interpolation,amount){

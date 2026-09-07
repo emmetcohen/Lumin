@@ -97,6 +97,17 @@ const NODE_TYPES = {
     [{key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100}],
     (d,w,h,p)=>fxInvert(d,p.amount)) },
 
+  gamma: { category:'color', title:'Gamma', ...pixelType(
+    [{key:'amount',label:'Gamma',type:'slider',min:10,max:300,step:1,default:100,unit:'%'}],
+    (d,w,h,p)=>fxGamma(d,p.amount)) },
+
+  clamp: { category:'color', title:'Clamp', ...pixelType(
+    [
+      {key:'low',label:'Min',type:'slider',min:0,max:100,step:1,default:0,unit:'%'},
+      {key:'high',label:'Max',type:'slider',min:0,max:100,step:1,default:100,unit:'%'},
+    ],
+    (d,w,h,p)=>fxClamp(d,p.low,p.high)) },
+
   colorRamp: { category:'color', title:'Color Ramp', ...pixelType(
     [
       {key:'stops',label:'Stops',type:'ramp',default:[{pos:0,color:'#000000'},{pos:0.5,color:'#3f8cff'},{pos:1,color:'#ffffff'}]},
@@ -200,6 +211,34 @@ const NODE_TYPES = {
       {key:'bands',label:'Bands',type:'slider',min:1,max:12,step:1,default:4},
     ],
     (d,w,h,p)=>fxRainbow(d,w,h,p.amount,p.bands)) },
+
+  iridescent: { category:'distort', title:'Iridescent', ...pixelType(
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
+      {key:'threshold',label:'Threshold',type:'slider',min:5,max:150,step:1,default:30},
+    ],
+    (d,w,h,p)=>fxIridescent(d,w,h,p.amount,p.threshold)) },
+
+  prismGlow: { category:'distort', title:'Prism Glow', ...pixelType(
+    [
+      {key:'threshold',label:'Threshold',type:'slider',min:0,max:100,step:1,default:70},
+      {key:'amount',label:'Glow',type:'slider',min:0,max:100,step:1,default:60},
+    ],
+    (d,w,h,p)=>fxPrismGlow(d,w,h,p.amount,p.threshold)) },
+
+  pixelSort: { category:'distort', title:'Pixel Sort', ...pixelType(
+    [
+      {key:'threshold',label:'Threshold',type:'slider',min:0,max:100,step:1,default:50},
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:100},
+    ],
+    (d,w,h,p)=>fxPixelSort(d,w,h,p.amount,p.threshold)) },
+
+  liquifyWarp: { category:'distort', title:'Liquify Warp', ...pixelType(
+    [
+      {key:'amount',label:'Amount',type:'slider',min:0,max:100,step:1,default:40},
+      {key:'scale',label:'Scale',type:'slider',min:1,max:10,step:1,default:4},
+    ],
+    (d,w,h,p)=>fxLiquifyWarp(d,w,h,p.amount,p.scale)) },
 
   // ---------------- FINISH ----------------
   vignette: {
@@ -318,6 +357,51 @@ const NODE_TYPES = {
       octx.putImageData(id,0,0); return out;
     }
   },
+  checker: {
+    category:'generate', title:'Checker', inputs:[], outputs:['Image'],
+    params:[
+      {key:'colorA',label:'Color A',type:'color',default:'#ffffff'},
+      {key:'colorB',label:'Color B',type:'color',default:'#161617'},
+      {key:'size',label:'Size',type:'slider',min:4,max:200,step:1,default:40,unit:'px'},
+    ],
+    compute(ins,p){
+      const out=document.createElement('canvas'); out.width=projectSize.w; out.height=projectSize.h;
+      const octx=out.getContext('2d'); const sz=Math.max(2,p.size||40);
+      for(let y=0;y<out.height;y+=sz){
+        for(let x=0;x<out.width;x+=sz){
+          octx.fillStyle = (((x/sz)|0)+((y/sz)|0))%2===0 ? p.colorA : p.colorB;
+          octx.fillRect(x,y,sz,sz);
+        }
+      }
+      return out;
+    }
+  },
+  voronoi: {
+    category:'generate', title:'Voronoi', inputs:[], outputs:['Image'],
+    params:[
+      {key:'cells',label:'Cells',type:'slider',min:2,max:60,step:1,default:14},
+      {key:'colorA',label:'Color A',type:'color',default:'#161617'},
+      {key:'colorB',label:'Color B',type:'color',default:'#3f8cff'},
+    ],
+    compute(ins,p){
+      const w=projectSize.w, h=projectSize.h;
+      const out=document.createElement('canvas'); out.width=w; out.height=h; const octx=out.getContext('2d');
+      const n=Math.max(2,p.cells||14);
+      const pts=[]; for(let i=0;i<n;i++) pts.push({x:Math.random()*w, y:Math.random()*h});
+      const ca=hexToRgb(p.colorA), cb=hexToRgb(p.colorB);
+      const id=octx.createImageData(w,h); const norm=(Math.min(w,h)*0.5)||1;
+      for(let y=0;y<h;y++){
+        for(let x=0;x<w;x++){
+          let best=Infinity;
+          for(let i=0;i<n;i++){ const dx=x-pts[i].x, dy=y-pts[i].y; const dist=dx*dx+dy*dy; if(dist<best) best=dist; }
+          const t=Math.min(1, Math.sqrt(best)/norm);
+          const idx=(y*w+x)*4;
+          id.data[idx]=ca[0]+(cb[0]-ca[0])*t; id.data[idx+1]=ca[1]+(cb[1]-ca[1])*t; id.data[idx+2]=ca[2]+(cb[2]-ca[2])*t; id.data[idx+3]=255;
+        }
+      }
+      octx.putImageData(id,0,0); return out;
+    }
+  },
 
   // ---------------- COMPOSITE ----------------
   mix: {
@@ -334,6 +418,56 @@ const NODE_TYPES = {
       const dw=iw*coverScale, dh=ih*coverScale; const dx=(out.width-dw)/2, dy=(out.height-dh)/2;
       octx.save(); octx.globalAlpha=clamp01((p.factor??100)/100); octx.globalCompositeOperation=p.mode||'source-over';
       octx.drawImage(b,dx,dy,dw,dh); octx.restore(); return out;
+    }
+  },
+  math: {
+    category:'composite', title:'Math', inputs:['A','B'], outputs:['Image'],
+    params:[{key:'op',label:'Operation',type:'select',default:'Add',
+      options:['Add','Subtract','Multiply','Divide','Min','Max','Difference','Average','Screen']}],
+    compute(ins,p){
+      const a=ins[0], b=ins[1]; if(!a && !b) return null; if(!a) return cloneCanvas(b); if(!b) return cloneCanvas(a);
+      const out=cloneCanvas(a); const octx=out.getContext('2d'); const w=out.width,h=out.height;
+      const bMatched=document.createElement('canvas'); bMatched.width=w; bMatched.height=h;
+      bMatched.getContext('2d').drawImage(b,0,0,w,h);
+      const ida=octx.getImageData(0,0,w,h), idb=bMatched.getContext('2d').getImageData(0,0,w,h);
+      fxMathOp(ida.data, idb.data, p.op);
+      octx.putImageData(ida,0,0); return out;
+    }
+  },
+  separateRGB: {
+    category:'composite', title:'Separate RGB', inputs:['Image'], outputs:['R','G','B'], params:[],
+    compute(ins){
+      const src=ins[0]; if(!src) return {R:null,G:null,B:null};
+      const w=src.width, h=src.height;
+      const sctx=document.createElement('canvas'); sctx.width=w; sctx.height=h;
+      const sc=sctx.getContext('2d'); sc.drawImage(src,0,0);
+      const id=sc.getImageData(0,0,w,h);
+      function chanCanvas(offset){
+        const c=document.createElement('canvas'); c.width=w; c.height=h; const cx=c.getContext('2d');
+        const od=cx.createImageData(w,h);
+        for(let i=0;i<id.data.length;i+=4){ const v=id.data[i+offset]; od.data[i]=v; od.data[i+1]=v; od.data[i+2]=v; od.data[i+3]=255; }
+        cx.putImageData(od,0,0); return c;
+      }
+      return { R:chanCanvas(0), G:chanCanvas(1), B:chanCanvas(2) };
+    }
+  },
+  combineRGB: {
+    category:'composite', title:'Combine RGB', inputs:['R','G','B'], outputs:['Image'], params:[],
+    compute(ins){
+      const [rIn,gIn,bIn]=ins; const ref=rIn||gIn||bIn; if(!ref) return null;
+      const w=ref.width, h=ref.height;
+      function chanData(src){
+        if(!src) return null;
+        const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(src,0,0,w,h);
+        return c.getContext('2d').getImageData(0,0,w,h).data;
+      }
+      const rd=chanData(rIn), gd=chanData(gIn), bd=chanData(bIn);
+      const out=document.createElement('canvas'); out.width=w; out.height=h; const octx=out.getContext('2d');
+      const od=octx.createImageData(w,h);
+      for(let i=0;i<od.data.length;i+=4){
+        od.data[i]=rd?rd[i]:0; od.data[i+1]=gd?gd[i+1]:0; od.data[i+2]=bd?bd[i+2]:0; od.data[i+3]=255;
+      }
+      octx.putImageData(od,0,0); return out;
     }
   },
 
@@ -417,10 +551,15 @@ function evaluateNode(id, visiting){
   const inputCanvases = type.inputs.map((name,idx)=>{
     const l=links.find(x=>x.to===id && x.toSock===idx);
     if(!l) return null;
-    return evaluateNode(l.from, visiting);
+    const upstream=evaluateNode(l.from, visiting);
+    const srcType=nodes[l.from] && NODE_TYPES[nodes[l.from].type];
+    // a node with more than one output (e.g. Separate RGB) caches an
+    // {outputName: canvas} object instead of a lone canvas — pick out the
+    // one this link actually connects to
+    return (srcType && srcType.outputs.length>1) ? ((upstream && upstream[l.fromSock]) || null) : upstream;
   });
   let result=null;
-  if(node.muted && type.inputs.length && type.outputs.length){
+  if(node.muted && type.inputs.length && type.outputs.length===1){
     result = inputCanvases[0] || null; // bypassed: pass the first input straight through
   } else {
     try{ result = type.compute(inputCanvases, node.params, node); }catch(e){ console.error('node compute error', node.type, e); result=null; }

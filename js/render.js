@@ -382,7 +382,7 @@ function renderNode(node){
     input.addEventListener('keydown', ev=>{ if(ev.key==='Enter') input.blur(); else if(ev.key==='Escape'){ input.value=node.title; input.blur(); } });
   });
   header.appendChild(titleSpan);
-  const canMute = type.inputs.length>0 && type.outputs.length>0;
+  const canMute = type.inputs.length>0 && type.outputs.length===1; // bypass only makes sense for a single output
   if(canMute){
     const mute=document.createElement('div'); mute.className='node-mute'+(node.muted?' active':''); mute.textContent='⏻';
     mute.title='Mute / bypass this node (M)';
@@ -430,11 +430,15 @@ function renderNode(node){
   });
   type.outputs.forEach((name,idx)=>{
     const s=document.createElement('div'); s.className='socket socket-out'; s.dataset.idx=idx; s.dataset.node=node.id; s.dataset.dir='out';
-    const has = links.some(l=>l.from===node.id);
+    const has = links.some(l=>l.from===node.id && l.fromSock===name);
     if(has) s.classList.add('filled');
     positionSocketVert(s, idx, type.outputs.length, header, body);
     s.addEventListener('mousedown', e=>{ e.stopPropagation(); e.preventDefault(); selectNode(node.id); startWireDrag(s); });
     el.appendChild(s);
+    if(type.outputs.length>1){
+      const lab=document.createElement('div'); lab.className='socket-label out'; lab.textContent=name;
+      lab.style.top=s.style.top; el.appendChild(lab);
+    }
   });
 
   header.addEventListener('mousedown', (e)=>startNodeDrag(e,node));
